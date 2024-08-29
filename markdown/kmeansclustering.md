@@ -19,11 +19,6 @@ data_folder_path = '../data/labels/'
 
 
 ```python
-file_path = Path(f'{data_folder_path}/DJI_0004_02_05.txt')
-```
-
-
-```python
 def get_box_data(data_folder_path):
     files = os.listdir(data_folder_path)
     boxes = []
