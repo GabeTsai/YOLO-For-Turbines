@@ -272,8 +272,33 @@ def k_means(boxes, k):
         new_box_map = assign_boxes(boxes, k, old_box_map)
         update_centroids(new_box_map)
         iter += 1
+    for key, item in new_box_map.items():
+        new_box_map[key]['boxes'] = np.vstack(item['boxes'])
     return new_box_map
 ```
+
+
+```python
+def plot_clusters(boxes, box_map):
+    plt.scatter(boxes[:, 2], boxes[:, 3], s = 0.5, alpha = 0.5)
+
+    for _, value in box_map.items():
+        plt.scatter(value['center'][2], value['center'][3], s = 100, marker = '*', edgecolors= 'black')
+
+    plt.xlabel('Width')
+    plt.ylabel('Height')
+```
+
+
+```python
+plot_clusters(boxes, k_means(boxes, 9))
+```
+
+
+    
+![png](kmeansclustering_files/kmeansclustering_25_0.png)
+    
+
 
 Random initialization often leads to suboptimal centroids. Hence, we use k means plus plus. 
 
@@ -320,7 +345,7 @@ for i, value in better_box_map.items():
 
 
     
-![png](kmeansclustering_files/kmeansclustering_28_0.png)
+![png](kmeansclustering_files/kmeansclustering_30_0.png)
     
 
 
@@ -337,6 +362,8 @@ def k_means_improved(boxes, k):
         new_box_map = assign_boxes(boxes, k, old_box_map)
         update_centroids(new_box_map)
         iter += 1
+    for key, item in new_box_map.items():
+        new_box_map[key]['boxes'] = np.vstack(item['boxes'])
     return new_box_map
 ```
 
@@ -347,37 +374,17 @@ box_map = k_means_improved(boxes, 9)
 
 
 ```python
-for key, item in box_map.items():
-    box_map[key]['boxes'] = np.vstack(item['boxes'])
-```
-
-
-```python
 #Sort centroids by size
 sorted_centroids = sorted(box_map.items(), key = lambda x: x[1]['center'][2] * x[1]['center'][3], reverse = True)
 ```
 
 
 ```python
-plt.scatter(boxes[:, 2], boxes[:, 3], s = 0.5, alpha = 0.5)
-
-for i, value in box_map.items():
-    plt.scatter(value['center'][2], value['center'][3], s = 100, marker = '*', edgecolors= 'black')
-    cluster_boxes = np.vstack(value['boxes'])
-
-plt.xlabel('Width')
-plt.ylabel('Height')
+plot_clusters(boxes, box_map)
 ```
 
 
-
-
-    Text(0, 0.5, 'Height')
-
-
-
-
     
-![png](kmeansclustering_files/kmeansclustering_34_1.png)
+![png](kmeansclustering_files/kmeansclustering_35_0.png)
     
 
