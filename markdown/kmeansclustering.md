@@ -19,6 +19,25 @@ data_folder_path = '../data/labels/'
 
 
 ```python
+with open(Path(data_folder_path) / 'labels.txt', 'r') as f:
+    lines = f.readlines()
+lines
+```
+
+
+
+
+    ['dirt\n', 'damage']
+
+
+
+
+```python
+file_path = Path(f'{data_folder_path}/DJI_0004_02_05.txt')
+```
+
+
+```python
 def get_box_data(data_folder_path):
     files = os.listdir(data_folder_path)
     boxes = []
@@ -31,6 +50,27 @@ def get_box_data(data_folder_path):
             boxes.append(file_boxes) 
     return np.concatenate(boxes, axis = 0)
 ```
+
+
+```python
+all_boxes = get_box_data(data_folder_path)
+plt.hist(all_boxes[:, 0], bins = 2)
+```
+
+
+
+
+    (array([ 581., 8770.]),
+     array([0. , 0.5, 1. ]),
+     <BarContainer object of 2 artists>)
+
+
+
+
+    
+![png](kmeansclustering_files/kmeansclustering_7_1.png)
+    
+
 
 
 ```python
@@ -50,7 +90,7 @@ for i in range(int(boxes.shape[0] * 0.05)):
 
 
     
-![png](kmeansclustering_files/kmeansclustering_7_0.png)
+![png](kmeansclustering_files/kmeansclustering_9_0.png)
     
 
 
@@ -71,7 +111,7 @@ plt.ylabel('Height')
 
 
     
-![png](kmeansclustering_files/kmeansclustering_8_1.png)
+![png](kmeansclustering_files/kmeansclustering_10_1.png)
     
 
 
@@ -91,7 +131,7 @@ plt.ylabel('Frequency')
 
 
     
-![png](kmeansclustering_files/kmeansclustering_9_1.png)
+![png](kmeansclustering_files/kmeansclustering_11_1.png)
     
 
 
@@ -112,10 +152,16 @@ def IoU(boxes1, boxes2):
     """
     boxes1 = np.array(boxes1)
     boxes2 = np.array(boxes2)
+
+    
     if boxes1.ndim == 1:
         boxes1 = boxes1.reshape(1, -1)
     if boxes2.ndim == 1:
         boxes2 = boxes2.reshape(1, -1)
+        
+    #Convert center coordinates to top left coordinates
+    boxes1[:, :2] = (boxes1[:, :2] - boxes1[:, 2:])/2
+    boxes2[:, :2] = (boxes2[:, :2] - boxes2[:, 2:])/2
 
     xA = np.maximum(boxes1[:, 0], boxes2[:, 0])
     yA = np.maximum(boxes1[:, 1], boxes2[:, 1])
@@ -139,10 +185,12 @@ from torchvision.ops import box_iou
 #Comparing the handwritten IoU function with the PyTorch IoU function.
 
 def IoU_torch(box1, box2):
-    box1[2] = box1[0] + box1[2]
-    box1[3] = box1[1] + box1[3]
-    box2[2] = box2[0] + box2[2]
-    box2[3] = box2[1] + box2[3]
+    #Convert center coordinates to top left coordinates
+    box1[:2] = (box1[:2] - box1[2:])/2
+    box2[:2] = (box2[:2] - box2[2:])/2
+    #Convert last two coordinates to bottom right coordinates
+    box1[2:] += box1[:2]
+    box2[2:] += box2[:2]
     box1 = torch.tensor(box1).unsqueeze(0)
     box2 = torch.tensor(box2).unsqueeze(0)
     return box_iou(box1, box2)
@@ -155,7 +203,7 @@ assert IoU(np.expand_dims(boxes[0], 0), np.expand_dims(boxes[1], 0)) - np.array(
     tensor([[0.]], dtype=torch.float64)
 
 
-    /var/folders/f1/3nybny351j5b_pmgq51tk7tr0000gn/T/ipykernel_83184/1229758435.py:16: DeprecationWarning: __array__ implementation doesn't accept a copy keyword, so passing copy=False failed. __array__ must implement 'dtype' and 'copy' keyword arguments.
+    /var/folders/f1/3nybny351j5b_pmgq51tk7tr0000gn/T/ipykernel_90712/1645213805.py:18: DeprecationWarning: __array__ implementation doesn't accept a copy keyword, so passing copy=False failed. __array__ must implement 'dtype' and 'copy' keyword arguments.
       assert IoU(np.expand_dims(boxes[0], 0), np.expand_dims(boxes[1], 0)) - np.array(IoU_torch(boxes[0], boxes[1])) < 1e-5
 
 
@@ -277,7 +325,7 @@ for i, value in better_box_map.items():
 
 
     
-![png](kmeansclustering_files/kmeansclustering_26_0.png)
+![png](kmeansclustering_files/kmeansclustering_28_0.png)
     
 
 
@@ -310,6 +358,12 @@ for key, item in box_map.items():
 
 
 ```python
+#Sort centroids by size
+sorted_centroids = sorted(box_map.items(), key = lambda x: x[1]['center'][2] * x[1]['center'][3], reverse = True)
+```
+
+
+```python
 plt.scatter(boxes[:, 2], boxes[:, 3], s = 0.5, alpha = 0.5)
 
 for i, value in box_map.items():
@@ -321,15 +375,15 @@ plt.xlabel('Width')
 plt.ylabel('Height')
 ```
 
-    (8297, 4)
-    (40, 4)
-    (67, 4)
-    (464, 4)
-    (34, 4)
-    (59, 4)
-    (287, 4)
-    (4, 4)
-    (99, 4)
+    (6647, 4)
+    (868, 4)
+    (308, 4)
+    (31, 4)
+    (402, 4)
+    (274, 4)
+    (458, 4)
+    (324, 4)
+    (39, 4)
 
 
 
@@ -341,6 +395,6 @@ plt.ylabel('Height')
 
 
     
-![png](kmeansclustering_files/kmeansclustering_31_2.png)
+![png](kmeansclustering_files/kmeansclustering_34_2.png)
     
 
