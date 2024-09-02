@@ -20,9 +20,9 @@ config = [
     (128, 3, 2),
     ["B", 2],
     (256, 3, 2),
-    ["B", 8],
+    ["B", 8],   #route to detection head
     (512, 3, 2),
-    ["B", 8],
+    ["B", 8],   #route to detection head
     (1024, 3, 2),
     ["B", 4],  # To this point is Darknet-53
     (512, 1, 1),
@@ -120,13 +120,33 @@ class ScalePredictionBlock(nn.Module):
         x = x.reshape(x.shape[0], self.anchors_per_scale, self.num_classes + 5, x.shape[2], x.shape[3])
         return x.permute(0, 1, 3, 4, 2) #(B, 3, feature_map_dim, feature_map_dim, num_classes + 5)
 
-class Yolov3(nn.Module):
+class YOLOv3(nn.Module):
     def __init__(self, in_channels = 3, num_classes = 80):
         super().__init__()
         self.in_channels = in_channels
         self.num_classes = num_classes
         self.layers = self._create_model_layers()
-        
+
+    def forward(self, x):
+        predictions = []
+        route_to_detection_head = []
+
+        for layer in self.layers:
+            if isinstance(layer, ScalePredictionBlock):
+                predictions.append(layer(x))
+                continue
+                
+            x = layer(x)
+
+            if isinstance(layer, ResidualBlock) and layer.num_blocks == 8:
+                route_to_detection_head.append(x)
+            
+            elif isinstance(layer, nn.Upsample):
+                x = torch.cat([x, route_to_detection_head[-1]], dim = 1) #concatenate by channel dimension
+                route_to_detection_head.pop() 
+
+        return predictions
+    
     def _create_model_layers(self):
         layers = nn.ModuleList()
         in_channels = self.in_channels
@@ -151,6 +171,10 @@ class Yolov3(nn.Module):
                         CNNBlock(in_channels, in_channels//2, kernel_size = 1),
                         ScalePredictionBlock(in_channels//2, num_classes = self.num_classes)
                     ]
-                if block == "U":
+                    in_channels = in_channels // 2 
+
+                elif block == "U":
                     layers.append(nn.Upsample(scale_factor = 2))
-                    in_channels = in_channels * 3   # because we concatenate layer output before detection head with two other layers after upsampling
+                    in_channels = in_channels * 3   # because we concatenate layer output before detection head with two layers outputs after upsampling
+        return layers
+    
