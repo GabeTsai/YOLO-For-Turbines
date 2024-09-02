@@ -26,9 +26,18 @@ def test_ResidualBlock():
     out = block(x)
     assert out.shape == (5, in_channels, feature_map_dim, feature_map_dim)
 
+def test_ScalePredictionBlock():
+    in_channels = 512
+    feature_map_dim = 13
+    block = ScalePredictionBlock(in_channels, num_classes = 2)
+    x = torch.randn((5, in_channels, feature_map_dim, feature_map_dim))
+    out = block(x)
+    assert out.shape == (5, 3, feature_map_dim, feature_map_dim, 5 + 2)
+
 def main():
     test_CNNBlock()
     test_ResidualBlock()
+    test_ScalePredictionBlock()
     print("All tests passed.")
 
 if __name__ == "__main__":
