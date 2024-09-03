@@ -180,6 +180,25 @@ def IoU(boxes1, boxes2):
 
 
 ```python
+def IoU_width_height(boxes1, boxes2):
+    """
+    Calculate the Intersection over Union (IoU) of arrays of bounding boxes. 
+    Assumes boxes are aligned at center. 
+    """
+
+    if boxes1.ndim == 1:
+        boxes1 = boxes1.reshape(1, -1)
+    if boxes2.ndim == 1:
+        boxes2 = boxes2.reshape(1, -1)
+    
+    intersection = np.minimum(boxes1[..., 0], boxes2[..., 0]) * np.minimum(boxes1[..., 1], boxes2[..., 1])
+    union = boxes1[..., 0] * boxes1[..., 1] + boxes2[..., 0] * boxes2[..., 1] - intersection
+    iou = intersection / union
+    return iou
+```
+
+
+```python
 import torchvision 
 from torchvision.ops import box_iou
 
@@ -226,7 +245,7 @@ def assign_boxes(boxes, k, box_map):
         box = boxes[i]
         iou_list = []
         for j in range(k):
-            iou = 1 - IoU(box, box_map[j]['center'])
+            iou = 1 - IoU_width_height(box, box_map[j]['center'])
             iou_list.append(iou)
         max_iou_idx = np.argmin(iou_list)
         box_map[max_iou_idx]['boxes'].append(box)
@@ -296,7 +315,7 @@ plot_clusters(boxes, k_means(boxes, 9))
 
 
     
-![png](kmeansclustering_files/kmeansclustering_25_0.png)
+![png](kmeansclustering_files/kmeansclustering_26_0.png)
     
 
 
@@ -320,7 +339,7 @@ def k_means_plus_plus(boxes, k):
         distances = []
         for j in range(boxes.shape[0]):
             # Find the closest centroid for each box
-            min_distance = min(1 - IoU(centroid, boxes[j]) for centroid in centroids)
+            min_distance = min(1 - IoU_width_height(centroid, boxes[j]) for centroid in centroids)
             distances.append(min_distance)
         #Choose the next centroid based on squared distances
         squared_distances = (np.array(distances) ** 2).flatten()
@@ -345,7 +364,7 @@ for i, value in better_box_map.items():
 
 
     
-![png](kmeansclustering_files/kmeansclustering_30_0.png)
+![png](kmeansclustering_files/kmeansclustering_31_0.png)
     
 
 
@@ -380,11 +399,28 @@ sorted_centroids = sorted(box_map.items(), key = lambda x: x[1]['center'][2] * x
 
 
 ```python
+for key, value in sorted_centroids:
+    print(f'Centroid {key}: {value["center"]}')
+```
+
+    Centroid 3: [0.69730244 0.44087063 0.10322437 0.14047119]
+    Centroid 2: [0.30024942 0.5914419  0.07748741 0.12964422]
+    Centroid 4: [0.32463223 0.13370087 0.07880889 0.08139865]
+    Centroid 7: [0.07715469 0.75489437 0.05900771 0.10794654]
+    Centroid 1: [0.73507075 0.83600304 0.07729995 0.08163972]
+    Centroid 6: [0.76654314 0.10494375 0.05603646 0.07913145]
+    Centroid 0: [0.06293728 0.25227185 0.04775008 0.08285015]
+    Centroid 8: [0.70914698 0.03086966 0.05423103 0.04824337]
+    Centroid 5: [0.32928114 0.02132886 0.03783881 0.03657486]
+
+
+
+```python
 plot_clusters(boxes, box_map)
 ```
 
 
     
-![png](kmeansclustering_files/kmeansclustering_35_0.png)
+![png](kmeansclustering_files/kmeansclustering_37_0.png)
     
 
