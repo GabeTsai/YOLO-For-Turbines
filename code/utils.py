@@ -4,17 +4,21 @@ import torch
 from pathlib import Path
 import os
 
-def seed_everything(seed = 3407):
+def iou_aligned(box1, box2):
     """
-    Seed all random number generators.
-    
+    Calculate IoU between two boxes. Assumes boxes are aligned at center.
+
     Args:
-        seed: int, seed value
+        box1: torch.Tensor, shape (2, ) [w, h]
+        box2: torch.Tensor, shape (2, ) [w, h]
+    
+    Returns:
+        torch.Tensor, IoU of boxes.
     """
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
+
+    intersection = torch.min(box1[..., 0], box2[..., 0]) * torch.min(box1[..., 1], box2[..., 1])
+    union = box1[..., 0] * box1[..., 1] + box2[..., 0] * box2[..., 1] - intersection
+    return intersection / union
 
 def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     """
@@ -57,4 +61,14 @@ def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
         split_data = data_arr[start_idx:end_idx]
         np.savetxt(Path(f"{split_folder}/{split}.csv"), split_data, fmt = "%s", delimiter = ",")
 
+def seed_everything(seed = 3407):
+    """
+    Seed all random number generators.
     
+    Args:
+        seed: int, seed value
+    """
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
