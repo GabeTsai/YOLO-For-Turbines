@@ -175,6 +175,6 @@ class YOLOv3(nn.Module):
 
                 elif block == "U":
                     layers.append(nn.Upsample(scale_factor = 2))
-                    in_channels = in_channels * 3   # because we concatenate layer output before detection head with two layers outputs after upsampling
+                    in_channels = in_channels * 3   #since we concatenate with a feature map with twice the number of channels
         return layers
     
