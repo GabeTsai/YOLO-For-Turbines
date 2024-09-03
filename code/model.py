@@ -20,9 +20,9 @@ config = [
     (128, 3, 2),
     ["B", 2],
     (256, 3, 2),
-    ["B", 8],
+    ["B", 8],   #route to detection head
     (512, 3, 2),
-    ["B", 8],
+    ["B", 8],   #route to detection head
     (1024, 3, 2),
     ["B", 4],  # To this point is Darknet-53
     (512, 1, 1),
@@ -82,7 +82,7 @@ class ResidualBlock(nn.Module):
             self.layers += [
                 nn.Sequential(
                     CNNBlock(in_channels, in_channels//2, kernel_size = 1),     #reduce dimensionality
-                    CNNBlock(in_channels//2, in_channels, kernel_size = 3, padding = 1)     #expand feature map for more feature refinement
+                    CNNBlock(in_channels//2, in_channels, kernel_size = 3, padding = 1)     #expand feature map 
                 )   
             ]
         self.use_residual = use_residual
@@ -97,9 +97,84 @@ class ResidualBlock(nn.Module):
         return x
 
 class ScalePredictionBlock(nn.Module):
-    def __init__(self, in_channels, num_classes):
+    """
+    Detection head for YOLOv3. 
+    Output is 
+    
+    Args:
+        in_channels: int, number of input channels
+        num_classes: int, number of classes to predict
+        anchors_per_scale: int, number of anchors per scale
+    """
+    def __init__(self, in_channels, num_classes, anchors_per_scale = 3):
         super().__init__()
-        
+        self.pred_block = nn.Sequential(
+            CNNBlock(in_channels, in_channels * 2, kernel_size = 3, padding = 1),
+            CNNBlock(2 * in_channels, (num_classes + 5) * anchors_per_scale, batch_norm_act = False, kernel_size = 1)
+        )
+        self.num_classes = num_classes
+        self.anchors_per_scale = anchors_per_scale
 
-class Yolov3(nn.Module):
-    pass
+    def forward(self, x):
+        x = self.pred_block(x) #(B, 3 * (num_classes + 5), feature_map_dim, feature_map_dim)
+        x = x.reshape(x.shape[0], self.anchors_per_scale, self.num_classes + 5, x.shape[2], x.shape[3])
+        return x.permute(0, 1, 3, 4, 2) #(B, 3, feature_map_dim, feature_map_dim, num_classes + 5)
+
+class YOLOv3(nn.Module):
+    def __init__(self, in_channels = 3, num_classes = 80):
+        super().__init__()
+        self.in_channels = in_channels
+        self.num_classes = num_classes
+        self.layers = self._create_model_layers()
+
+    def forward(self, x):
+        predictions = []
+        route_to_detection_head = []
+
+        for layer in self.layers:
+            if isinstance(layer, ScalePredictionBlock):
+                predictions.append(layer(x))
+                continue
+                
+            x = layer(x)
+
+            if isinstance(layer, ResidualBlock) and layer.num_blocks == 8:
+                route_to_detection_head.append(x)
+            
+            elif isinstance(layer, nn.Upsample):
+                x = torch.cat([x, route_to_detection_head[-1]], dim = 1) #concatenate by channel dimension
+                route_to_detection_head.pop() 
+
+        return predictions
+    
+    def _create_model_layers(self):
+        layers = nn.ModuleList()
+        in_channels = self.in_channels
+        for block in config:
+            if isinstance(block, tuple):
+                out_channels, kernel_size, stride = block
+                padding = 1 if kernel_size == 3 else 0
+                layers.append(
+                    CNNBlock(in_channels, out_channels, kernel_size = kernel_size, 
+                             stride = stride, padding = padding)
+                )
+                in_channels = out_channels
+
+            elif isinstance(block, list): #residual blocks do not change feature map dimensions
+                layers.append(ResidualBlock(in_channels, num_blocks = block[1]))
+            
+            #Detection head. 5 conv layers, alternating 1x1 and 3x3 
+            elif isinstance(block, str): 
+                if block == "S":
+                    layers += [
+                        ResidualBlock(in_channels, use_residual = False, num_blocks = 1),
+                        CNNBlock(in_channels, in_channels//2, kernel_size = 1),
+                        ScalePredictionBlock(in_channels//2, num_classes = self.num_classes)
+                    ]
+                    in_channels = in_channels // 2 
+
+                elif block == "U":
+                    layers.append(nn.Upsample(scale_factor = 2))
+                    in_channels = in_channels * 3   #since we concatenate with a feature map with twice the number of channels
+        return layers
+    
