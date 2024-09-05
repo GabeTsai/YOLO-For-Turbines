@@ -45,18 +45,20 @@ class YOLODataset(Dataset):
         img = np.array(Image.open(img_path).convert('RGB'))
         label_path = Path(f"{self.annotation_folder}/{self.annotations.iloc[idx, 1]}")
 
-        #[3, g, g, objectness, class, tx, ty, tw, th] for g in grid_sizes   
+        #[3, g, g, tx + ty + tw + th + objectness + class] for g in grid_sizes   
         # Initialize targets to zero; assume no object is present in any anchor by default
-        targets = [torch.zeros((self.num_anchors // 3, grid_size, grid_size, 6) for grid_size in self.grid_sizes)]
+        targets = [torch.zeros((self.num_anchors // 3, grid_size, grid_size, 6)) for grid_size in self.grid_sizes]
 
         if label_path.exists():
-            boxes = np.roll(np.loadtxt(label_path, delimiter = " "), shift = 4, axis = 1).tolist() #albumentations expects [x, y, w, h, class]
+            boxes = np.loadtxt(label_path, delimiter=" ")
+            if boxes.ndim == 1:
+                boxes = boxes.reshape(1, -1)
+            boxes = np.roll(boxes, shift = 4, axis = 1).tolist()    #albumentations expects [x, y, w, h, class]
             if self.transform:
                 augmentations = self.transform(image = img, bboxes = boxes)
                 img = augmentations['image']
                 boxes = augmentations['bboxes']
 
-           
             for box in boxes:
                 iou_with_anchors = iou_aligned(torch.tensor(box[2:]), self.anchors)
                 anchor_indices = iou_with_anchors.argsort(descending = True, dim = 0)
@@ -71,14 +73,14 @@ class YOLODataset(Dataset):
                     anchor_taken = targets[scale_idx][anchor_for_scale, i, j, 0]
 
                     if not anchor_taken and not has_anchor[scale_idx]:  #if anchor is free and scale doesn't already have an assigned anchor
-                        targets[scale_idx][anchor_for_scale, i, j, 0] = 1
-                        x_cell, y_cell = cur_grid_size * x - i, cur_grid_size * y   #get top left coord for specific grid cell
+                        targets[scale_idx][anchor_for_scale, i, j, 4] = 1   #object exists for grid cell
+                        x_cell, y_cell = cur_grid_size * x - i, cur_grid_size * y - j   #get top left coord for specific grid cell
                         width_cell, height_cell = (w * cur_grid_size, h * cur_grid_size)    #scale to grid
 
                         box_coords = torch.tensor([x_cell, y_cell, width_cell, height_cell])
 
-                        targets[scale_idx][anchor_for_scale, i, j, 1] = int(class_label)
-                        targets[scale_idx][anchor_for_scale, i, j, 2:] = box_coords
+                        targets[scale_idx][anchor_for_scale, i, j, 5] = int(class_label)
+                        targets[scale_idx][anchor_for_scale, i, j, :4] = box_coords
                         has_anchor[scale_idx] = True
 
                     #ignore anchors that have significant IoU but aren't the best fit with ground truth

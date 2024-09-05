@@ -20,6 +20,42 @@ def iou_aligned(box1, box2):
     union = box1[..., 0] * box1[..., 1] + box2[..., 0] * box2[..., 1] - intersection
     return intersection / union
 
+def iou(boxes1, boxes2, mode = "center"):
+    """
+    Calculate the Intersection over Union (IoU) of arrays of bounding boxes.
+
+    Args:
+        boxes1: (N, 4) or (4,) Tensor
+        boxes2: (N, 4) or (4,) Tensor
+        mode: string specifying "center" for cxcywh or "corner" for x1y1x2y2
+    
+    Returns:
+        (N, ) Tensor
+    
+    """
+    if boxes1.dim() == 1:
+        boxes1 = boxes1.unsqueeze(0)
+    if boxes2.dim() == 1:
+        boxes2 = boxes2.unsqueeze(0)
+
+    # Convert center coordinates to top left coordinates.
+    if mode == "center":
+        boxes1[..., :2] = boxes1[..., :2] - boxes1[..., 2:]/2
+        boxes2[..., :2] = boxes2[..., :2] - boxes2[..., 2:]/2
+
+    xA = torch.max(boxes1[..., 0], boxes2[..., 0])
+    yA = torch.max(boxes1[..., 1], boxes2[..., 1])
+    xB = torch.min(boxes1[..., 0] + boxes1[..., 2], boxes2[..., 0] + boxes2[..., 2])
+    yB = torch.min(boxes1[..., 1] + boxes1[..., 3], boxes2[..., 1] + boxes2[..., 3])
+    box_width = torch.clamp(xB - xA, min=0)
+    box_height = torch.clamp(yB - yA, min=0)
+    intersection_area = box_width * box_height
+    boxes1_area = boxes1[..., 2] * boxes1[..., 3]
+    boxes2_area = boxes2[..., 2] * boxes2[..., 3]
+    union_area = boxes1_area + boxes2_area - intersection_area
+    iou = intersection_area / union_area
+    return iou
+
 def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     """
     Create csv files for training, validation and test datasets.

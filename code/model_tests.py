@@ -1,5 +1,6 @@
 import torch
 from model import CNNBlock, ResidualBlock, ScalePredictionBlock, YOLOv3
+from loss import YOLOLoss
 
 IMAGE_SIZE = 416
 
@@ -44,11 +45,25 @@ def test_Yolov3():
     assert out[1].shape == (5, 3, 26, 26, num_classes + 5)
     assert out[2].shape == (5, 3, 52, 52, num_classes + 5)
 
+def test_YOLOLoss():
+    anchors = torch.tensor([[0.28, 0.22], [0.38, 0.48], [0.9, 0.78]])
+    loss = YOLOLoss()
+    num_classes = 2
+    predictions = torch.zeros((5, 3, 13, 13, 5 + num_classes))
+    targets = torch.zeros((5, 3, 13, 13, 6))
+    out = loss(predictions, targets, anchors)
+    assert abs(out.item() - 0.693147) < 1e-6 # loss should be close to ln(2)
+
+    predictions[..., 4] = -20   # loss should be close to 0
+    out = loss(predictions, targets, anchors)
+    assert abs(out.item()) < 1e-6
+
 def main():
     test_CNNBlock()
     test_ResidualBlock()
     test_ScalePredictionBlock()
     test_Yolov3()
+    test_YOLOLoss()
     print("All tests passed.")
 
 if __name__ == "__main__":

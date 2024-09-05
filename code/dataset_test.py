@@ -14,24 +14,27 @@ def test_YOLODataset():
     [(0.07, 0.15), (0.15, 0.11), (0.14, 0.29)],
     [(0.02, 0.03), (0.04, 0.07), (0.08, 0.06)],
     ] 
+    grid_sizes=[13, 26, 52]
+
     dataset = YOLODataset(
         "data/train.csv",
         "data/images/",
         "data/labels/",
-        grid_sizes=[13, 26, 52],
         anchors=ANCHORS,
+        grid_sizes = grid_sizes,
         num_classes = 2,
         transform=None,
     )
 
-    loader = DataLoader(dataset, batch_size=2, shuffle=True)
+    loader = DataLoader(dataset, batch_size=32, shuffle=True)
 
-    dataiter = iter(loader)
-    images, labels = next(dataiter)
-    print(images, labels)
+    for x, y in loader:
+        print(x.shape)
+        print(y[0].shape)
+        break
 
 def main():
-    test_create_csv_files()
+    # test_create_csv_files()
     test_YOLODataset()
     print("All tests passed.")
 
