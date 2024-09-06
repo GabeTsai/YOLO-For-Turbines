@@ -99,7 +99,7 @@ class ResidualBlock(nn.Module):
 class ScalePredictionBlock(nn.Module):
     """
     Detection head for YOLOv3. 
-    Output is 
+    Output is a tensor with shape (B, 3, scale_dim, scale_dim, tx + ty + tw + th + objectness + class_scores)
     
     Args:
         in_channels: int, number of input channels
@@ -116,9 +116,9 @@ class ScalePredictionBlock(nn.Module):
         self.anchors_per_scale = anchors_per_scale
 
     def forward(self, x):
-        x = self.pred_block(x) #(B, 3 * (num_classes + 5), feature_map_dim, feature_map_dim)
+        x = self.pred_block(x) #(B, 3 * (num_classes + 5), scale_dim, scale_dim)
         x = x.reshape(x.shape[0], self.anchors_per_scale, self.num_classes + 5, x.shape[2], x.shape[3])
-        return x.permute(0, 1, 3, 4, 2) #(B, 3, feature_map_dim, feature_map_dim, num_classes + 5)
+        return x.permute(0, 1, 3, 4, 2) #(B, 3, scale_dim, scale_dim, num_classes + 5)
 
 class YOLOv3(nn.Module):
     def __init__(self, in_channels = 3, num_classes = 80):
