@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import torch
 from pathlib import Path
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import os
 
 def iou_aligned(box1, box2):
@@ -56,9 +58,9 @@ def calc_iou(boxes1, boxes2, box_format = "center"):
     iou = intersection_area / union_area
     return iou
 
-def cell_pred_to_boxes(predictions, anchors, grid_size, is_pred = True):
+def cells_to_boxes(predictions, anchors, grid_size, is_pred = True):
     """
-    Convert YOLO cell predictions for one scale to bounding box predictions in cxcywh form.
+    Convert YOLO cell predictions or targets for one scale to bounding box predictions in cxcywh form.
 
     Args:
         predictions: torch.Tensor, shape (N, 3, S, S, 5 + num_classes) or (N, 3, S, S, 5 + class_label)
@@ -75,7 +77,7 @@ def cell_pred_to_boxes(predictions, anchors, grid_size, is_pred = True):
     box_predictions = predictions[..., :4]
 
     if is_pred:
-        #Convert to absolute coordinates relative to grid cell
+        #Convert to normalized coordinates relative to grid cell
         box_predictions[..., 0:2] = torch.sigmoid(box_predictions[..., 0:2])
         #Reshape anchors for broadcasting operations
         anchors = anchors.reshape(1, len(anchors), 1, 1, 2) #(1, 3, 1, 1, 2)
@@ -232,6 +234,35 @@ def calc_mAP(pred_boxes, true_boxes, iou_threshold = 0.5, box_format = "center",
         average_precisions.append(torch.trapz(precisions, recalls))
     
     return sum(average_precisions) / len(average_precisions)
+
+def plot_image_with_boxes(image, boxes, class_list):
+    """
+    Plot image with bounding boxes.
+
+    Args:
+        image: np.array, shape (H, W, C)
+        boxes: list of lists, each list is bounding box in format [x, y, w, h, obj, class_label]
+        class_list: list of strings, class labels
+    """
+    
+    if (len(boxes) == 0):
+        print("No objects detected.")
+        return
+    fig, ax = plt.subplots()
+    image = np.array(image)
+    print(image.shape)
+    ax.imshow(image)
+    im_h, im_w = image.shape[0], image.shape[1]
+    
+    for box in boxes:
+        x, y, w, h, _, class_label = box
+        top_left_x = (box[0] - box[2]/2) * im_w
+        top_left_y = (box[1] - box[3]/2) * im_h
+        box_w = w * im_w
+        box_h = h * im_h
+        rect = patches.Rectangle((top_left_x, top_left_y), box_w, box_h, linewidth = 1, edgecolor = 'r', facecolor = 'none')
+        ax.add_patch(rect)
+    plt.show()
 
 def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     """

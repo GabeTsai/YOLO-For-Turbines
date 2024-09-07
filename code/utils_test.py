@@ -21,11 +21,11 @@ def test_mAP():
 
 def test_cell_pred_to_boxes():
     num_classes = 3
-    grid_size = 13
-    predictions = torch.rand((5, 3, 13, 13, 5 + num_classes))
+    grid_size = 3
+    predictions = torch.zeros((5, 3, grid_size, grid_size, 5 + num_classes))
     anchors = torch.tensor([[0.28, 0.22], [0.38, 0.48], [0.9, 0.78]])
     boxes = cell_pred_to_boxes(predictions, anchors, grid_size)
-    assert torch.tensor(boxes).shape == (5, 3 * 13 * 13, 6)
+    assert torch.tensor(boxes).shape == (5, 3 * grid_size * grid_size, 6)
 
 def main():
     test_iou()

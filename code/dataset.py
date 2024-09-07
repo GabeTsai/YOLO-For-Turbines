@@ -42,7 +42,7 @@ class YOLODataset(Dataset):
 
     def __getitem__(self, idx):
         img_path = Path(f"{self.img_folder}/{self.annotations.iloc[idx, 0]}")
-        img = np.array(Image.open(img_path).convert('RGB'))
+        img = np.array(Image.open(img_path).convert('RGB')).transpose((2, 1, 0)) #conv2d expects (C, H, W)
         label_path = Path(f"{self.annotation_folder}/{self.annotations.iloc[idx, 1]}")
 
         #[3, g, g, tx + ty + tw + th + objectness + class] for g in grid_sizes   
@@ -58,23 +58,23 @@ class YOLODataset(Dataset):
                 augmentations = self.transform(image = img, bboxes = boxes)
                 img = augmentations['image']
                 boxes = augmentations['bboxes']
-
+            
             for box in boxes:
-                iou_with_anchors = iou_aligned(torch.tensor(box[2:]), self.anchors)
+                iou_with_anchors = iou_aligned(torch.tensor(box[2:4]), self.anchors)
                 anchor_indices = iou_with_anchors.argsort(descending = True, dim = 0)
-                class_label, x, y, w, h = box
+                x, y, w, h, class_label = box
                 #assign an anchor from each scale to the box
                 has_anchor = [False] * 3
                 for anchor_idx in anchor_indices:
                     scale_idx = anchor_idx // self.num_anchors_per_scale    #find which scale anchor belongs to
                     anchor_for_scale = anchor_idx % self.num_anchors_per_scale  #find specific anchor within scale
                     cur_grid_size = self.grid_sizes[scale_idx]
-                    i, j = int(cur_grid_size * x), int(cur_grid_size * y)   #grid cell indices
+                    i, j = int(cur_grid_size * y) , int(cur_grid_size * x)   #grid cell indices
                     anchor_taken = targets[scale_idx][anchor_for_scale, i, j, 0]
 
                     if not anchor_taken and not has_anchor[scale_idx]:  #if anchor is free and scale doesn't already have an assigned anchor
                         targets[scale_idx][anchor_for_scale, i, j, 4] = 1   #object exists for grid cell
-                        x_cell, y_cell = cur_grid_size * x - i, cur_grid_size * y - j   #get top left coord for specific grid cell
+                        x_cell, y_cell = cur_grid_size * x - j, cur_grid_size * y - i   #get top left coord for specific grid cell
                         width_cell, height_cell = (w * cur_grid_size, h * cur_grid_size)    #scale to grid
 
                         box_coords = torch.tensor([x_cell, y_cell, width_cell, height_cell])
