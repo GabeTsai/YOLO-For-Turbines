@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import numpy as np
+import os
 
 """
 C. @aladdinpersson
@@ -54,9 +56,16 @@ class CNNBlock(nn.Module):
     def __init__(self, in_channels, out_channels, batch_norm_act = True, **kwargs):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, bias = not batch_norm_act, **kwargs) #using batch norm eliminates need for bias vector
-        self.batch_norm = nn.BatchNorm2d(out_channels)
-        self.leaky_relu = nn.LeakyReLU(0.1)
+        self.batch_norm = nn.BatchNorm2d(out_channels) if batch_norm_act else None
+        self.leaky_relu = nn.LeakyReLU(0.1) if batch_norm_act else None
         self.batch_norm_act = batch_norm_act
+    
+    def set_layers(self, layers):
+        print(layers)
+        self.conv = layers[0]
+        if self.batch_norm_act:
+            self.batch_norm = layers[1]
+            self.leaky_relu = layers[2]
 
     def forward(self, x):
         if self.batch_norm_act:
@@ -121,11 +130,23 @@ class ScalePredictionBlock(nn.Module):
         return x.permute(0, 1, 3, 4, 2) #(B, 3, scale_dim, scale_dim, num_classes + 5)
 
 class YOLOv3(nn.Module):
-    def __init__(self, in_channels = 3, num_classes = 80):
+    def __init__(self, in_channels = 3, num_classes = 80, weights_path = None):
         super().__init__()
         self.in_channels = in_channels
         self.num_classes = num_classes
         self.layers = self._create_model_layers()
+        self.param_idx = 0
+        self.weights_path = None
+
+        if weights_path:
+            self.weights_path = weights_path
+            with open (weights_path, "rb") as f:
+                header = np.fromfile(f, dtype = np.int32, count = 5)
+                self.weights = np.fromfile(f, dtype = np.float32)
+            self.cutoff = None
+            file_name = os.path.basename(weights_path)
+            if '.conv' in weights_path:
+                self.cutoff = int(file_name.split('.')[-1])
 
     def forward(self, x):
         predictions = []
@@ -135,13 +156,13 @@ class YOLOv3(nn.Module):
             if isinstance(layer, ScalePredictionBlock):
                 predictions.append(layer(x))
                 continue
-                
             x = layer(x)
 
             if isinstance(layer, ResidualBlock) and layer.num_blocks == 8:
                 route_to_detection_head.append(x)
             
             elif isinstance(layer, nn.Upsample):
+                print(route_to_detection_head[-1].shape)
                 x = torch.cat([x, route_to_detection_head[-1]], dim = 1) #concatenate by channel dimension
                 route_to_detection_head.pop() 
 
@@ -176,5 +197,100 @@ class YOLOv3(nn.Module):
                 elif block == "U":
                     layers.append(nn.Upsample(scale_factor = 2))
                     in_channels = in_channels * 3   #since we concatenate with a feature map with twice the number of channels
+
         return layers
     
+    def load_weights(self):
+        print(len(self.layers))
+        
+        for i, block in enumerate(self.layers):
+            if not isinstance(block, nn.Upsample):
+                for sub_block in block.children():
+                    print(sub_block)
+                    if isinstance(sub_block, CNNBlock):
+                        self.layers[i] = self.load_CNNBlock(sub_block)  
+                    #residual block or scale prediction block
+                    elif isinstance(sub_block, nn.ModuleList) or isinstance(sub_block, nn.Sequential):
+                        self.layers[i] = self.load_block_weights(sub_block)
+                    else:
+                        self.layers[i] = self.load_layer_weights(sub_block)
+        print(self.param_idx)
+        print(f"Weights from {self.weights_path} loaded successfully.")
+    
+    def load_CNNBlock(self, block):
+        print("balls")
+        loaded_block = block
+        cnn_block_layers = []
+        for layer in block.children():
+            loaded_layer = self.load_layer_weights(layer)
+            cnn_block_layers.append(loaded_layer)
+        loaded_block.set_layers(cnn_block_layers)
+        return loaded_block
+    
+    def load_block_weights(self, block):
+        if isinstance(block, ResidualBlock):
+            loaded_res_layers = nn.ModuleList()
+            res_layers = block.children()
+            for seq in res_layers:
+                for cnn_block in seq.children():
+                    print(cnn_block)
+                    loaded_res_layers.append(self.load_CNNBlock(cnn_block))
+            return loaded_res_layers
+
+        elif isinstance(block, ScalePredictionBlock):
+            loaded_scale_layers = []
+            for cnn_block in block.children():
+                loaded_block = self.load_CNNBlock(cnn_block)
+                loaded_scale_layers.append(loaded_block)
+            return nn.Sequential(*loaded_scale_layers)
+
+    def load_layer_weights(self, layer):
+        weights = self.weights
+        if isinstance(layer, nn.Conv2d):
+            if layer.bias is not None: #if bias exists
+                num_bias = layer.bias.numel()
+                conv_biases = torch.from_numpy(weights[self.param_idx:self.param_idx + num_bias])
+                conv_biases = conv_biases.view_as(layer.bias.data)
+                self.param_idx += num_bias
+                layer.bias.data.copy_(conv_biases)
+
+            num_weights = layer.weight.numel()
+            conv_weights = torch.from_numpy(weights[self.param_idx:self.param_idx + num_weights])
+            self.param_idx += num_weights
+            conv_weights = conv_weights.view_as(layer.weight.data)
+            layer.weight.data.copy_(conv_weights)
+
+        elif isinstance(layer, nn.BatchNorm2d):
+            num_bn_params = layer.bias.numel()
+            
+            bn_biases = torch.from_numpy(weights[self.param_idx:self.param_idx + num_bn_params])  #beta
+            layer.bias.data.copy_(bn_biases.view_as(layer.bias))
+            self.param_idx += num_bn_params
+
+            bn_weights = torch.from_numpy(weights[self.param_idx:self.param_idx + num_bn_params]) #gamma
+            layer.weight.data.copy_(bn_weights.view_as(layer.weight))        
+            self.param_idx += num_bn_params
+
+            bn_running_mean = torch.from_numpy(weights[self.param_idx:self.param_idx + num_bn_params])   
+            layer.running_mean.data.copy_(bn_running_mean.view_as(layer.running_mean))
+            self.param_idx += num_bn_params
+
+            bn_running_var = torch.from_numpy(weights[self.param_idx:self.param_idx + num_bn_params])
+            layer.running_var.data.copy_(bn_running_var.view_as(layer.running_var))
+            self.param_idx += num_bn_params
+
+        return layer
+
+if __name__ == "__main__":
+    num_classes = 80
+    IMAGE_SIZE = 416
+    model = YOLOv3(num_classes=num_classes)
+    
+    print(sum(p.numel() for p in model.parameters()))
+
+    x = torch.randn((2, 3, IMAGE_SIZE, IMAGE_SIZE))
+    out = model(x)
+    assert model(x)[0].shape == (2, 3, IMAGE_SIZE//32, IMAGE_SIZE//32, num_classes + 5)
+    assert model(x)[1].shape == (2, 3, IMAGE_SIZE//16, IMAGE_SIZE//16, num_classes + 5)
+    assert model(x)[2].shape == (2, 3, IMAGE_SIZE//8, IMAGE_SIZE//8, num_classes + 5)
+    print("Success!")

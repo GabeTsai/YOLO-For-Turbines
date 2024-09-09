@@ -42,19 +42,21 @@ class YOLODataset(Dataset):
 
     def __getitem__(self, idx):
         img_path = Path(f"{self.img_folder}/{self.annotations.iloc[idx, 0]}")
-        img = np.array(Image.open(img_path).convert('RGB')).transpose((2, 1, 0)) #conv2d expects (C, H, W)
+        img = np.array(Image.open(img_path).convert('RGB')) 
+        print(img.shape)
         label_path = Path(f"{self.annotation_folder}/{self.annotations.iloc[idx, 1]}")
-        print(img_path)
         #[3, g, g, tx + ty + tw + th + objectness + class] for g in grid_sizes   
         # Initialize targets to zero; assume no object is present in any anchor by default
         targets = [torch.zeros((self.num_anchors // 3, grid_size, grid_size, 6)) for grid_size in self.grid_sizes]
 
         if label_path.exists():
+            print(label_path)
             boxes = np.loadtxt(label_path, delimiter=" ")
             if boxes.ndim == 1:
                 boxes = boxes.reshape(1, -1)
             boxes = np.roll(boxes, shift = 4, axis = 1).tolist()    #albumentations expects [x, y, w, h, class]
-            if self.transform:
+            
+            if self.transform is not None:
                 augmentations = self.transform(image = img, bboxes = boxes)
                 img = augmentations['image']
                 boxes = augmentations['bboxes']
@@ -81,12 +83,12 @@ class YOLODataset(Dataset):
                         x_cell, y_cell = cur_grid_size * x - j, cur_grid_size * y - i   #get top left coord for specific grid cell
                         width_cell, height_cell = (w * cur_grid_size, h * cur_grid_size)    #scale to grid
                         box_coords = torch.tensor([x_cell, y_cell, width_cell, height_cell])
-                        assert(torch.equal(torch.tensor([
+                        assert(torch.allclose(torch.tensor([
                             (x_cell + j) / cur_grid_size,
                             (y_cell + i) / cur_grid_size,
                             width_cell / cur_grid_size,
                             height_cell / cur_grid_size
-                        ]), torch.tensor([x, y, w, h])))
+                        ]), torch.tensor([x, y, w, h]), atol=1e-6))
                         targets[scale_idx][anchor_for_scale, i, j, 5] = int(class_label)
                         targets[scale_idx][anchor_for_scale, i, j, :4] = box_coords
                         has_anchor[scale_idx] = True

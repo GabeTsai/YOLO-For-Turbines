@@ -18,9 +18,9 @@ def test_YOLODataset():
     grid_sizes=[13, 26, 52]
 
     dataset = YOLODataset(
-        "data/train.csv",
-        "data/images/",
-        "data/labels/",
+        "../data/train.csv",
+        "../data/images/",
+        "../data/labels/",
         anchors=anchors_norm,
         grid_sizes = grid_sizes,
         num_classes = 2,
@@ -42,8 +42,8 @@ def test_YOLODataset():
         
 
 def main():
-    # test_create_csv_files()
-    test_YOLODataset()
+    test_create_csv_files()
+    # test_YOLODataset()
     print("All tests passed.")
 
 if __name__ == "__main__":

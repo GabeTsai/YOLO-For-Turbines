@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from utils import iou
+from utils import calc_iou
 
 class YOLOLoss(nn.Module):
     """

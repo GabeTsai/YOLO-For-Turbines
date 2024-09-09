@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import os
 
+import config
+
 def iou_aligned(box1, box2):
     """
     Calculate IoU between two boxes. Assumes boxes are aligned at center.
@@ -265,8 +267,25 @@ def plot_image_with_boxes(image, boxes, class_list):
         box_h = h * im_h
         rect = patches.Rectangle((top_left_x, top_left_y), box_w, box_h, linewidth = 1, edgecolor = 'r', facecolor = 'none')
         ax.add_patch(rect)
+
     plt.show()
 
+def get_loaders(train_csv_path, test_csv_path):
+    """
+    Get DataLoader objects for training and testing datasets.
+
+    Args:
+        train_csv_path: str, path to csv file with training data
+        test_csv_path: str, path to csv file with test data
+
+    Returns:
+        DataLoader objects for training and testing datasets
+    """
+    from dataset import YOLODataset
+
+    train_dataset = YOLODataset(train_csv_path, transform = None)
+    test_dataset = YOLODataset(test_csv_path, transform = None)
+   
 def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     """
     Create csv files for training, validation and test datasets.
@@ -274,7 +293,6 @@ def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     Args:
         image_folder: str, path to folder with images
         annotation_folder: str, path to folder with txt files containing annotations
-        split_folder: str, path to folder where csv files will be saved
         split_map: dict, keys specify split, values specify percentage
     """
     images = np.array(os.listdir(image_folder))
@@ -286,7 +304,7 @@ def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     assert(len(images) == len(image_names))
 
     common_names = image_names.intersection(label_names)
-
+    
     data_list = []
 
     for image_name in sorted(image_names):
