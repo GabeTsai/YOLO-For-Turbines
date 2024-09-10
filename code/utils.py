@@ -57,7 +57,7 @@ def calc_iou(boxes1, boxes2, box_format = "center"):
     boxes1_area = boxes1[..., 2] * boxes1[..., 3]
     boxes2_area = boxes2[..., 2] * boxes2[..., 3]
     union_area = boxes1_area + boxes2_area - intersection_area
-    iou = intersection_area / union_area
+    iou = intersection_area / (union_area + 1e-6)
     return iou
 
 def cells_to_boxes(predictions, anchors, grid_size, is_pred = True):
@@ -267,6 +267,13 @@ def plot_image_with_boxes(image, boxes, class_list):
         box_h = h * im_h
         rect = patches.Rectangle((top_left_x, top_left_y), box_w, box_h, linewidth = 1, edgecolor = 'r', facecolor = 'none')
         ax.add_patch(rect)
+
+        class_label = int(class_label)
+        class_name = class_list[class_label]
+        plt.text(top_left_x, top_left_y, s = class_name, 
+                 size = 'xx-small',
+                 color = 'white', 
+                 bbox={"color": "red", "pad": 0})
 
     plt.show()
 

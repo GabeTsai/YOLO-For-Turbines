@@ -69,12 +69,8 @@ class CNNBlock(nn.Module):
 
     def forward(self, x):
         if self.batch_norm_act:
-            print(self.conv.weight.data)
-            print(torch.mean(self.conv(x)))
-            print(f"Conv output min: {self.conv(x).min()}, max: {self.conv(x).max()}")
-            print("Batch norm running mean: ", self.batch_norm.running_mean)
-            print("Batch norm running var: ", self.batch_norm.running_var)
-            print(self.batch_norm(self.conv(x)))
+            # print(torch.sum(torch.isnan(self.conv(x))))
+            # print(self.batch_norm(self.conv(x)))
             return self.leaky_relu(self.batch_norm(self.conv(x)))
         else:
             return self.conv(x) 
@@ -171,9 +167,10 @@ class YOLOv3(nn.Module):
                 continue
 
             x = layer(x)
+            print(torch.sum(torch.isnan(x)))
             if torch.sum(torch.isnan(x)) > 0:
-                print(layer)
-                raise ValueError("NaN in forward pass")
+                print(f"Nan in layer {layer}")
+                raise ValueError("Nan in layer")
             if isinstance(layer, ResidualBlock) and layer.num_blocks == 8:
                 route_to_detection_head.append(x)
             
@@ -230,10 +227,14 @@ class YOLOv3(nn.Module):
     def load_CNNBlock(self, block):
         loaded_block = block
         cnn_block_layers = []
-        for layer in block.children():
-            if layer is not None:
-                loaded_layer = self.load_layer_weights(layer)
-                cnn_block_layers.append(loaded_layer)
+        if block.batch_norm_act:
+            loaded_batch_norm = self.load_layer_weights(block.batch_norm)
+            loaded_conv = self.load_layer_weights(block.conv)
+            cnn_block_layers += [loaded_conv, loaded_batch_norm, block.leaky_relu]
+        #just a single conv layer
+        else:   
+            loaded_conv = self.load_layer_weights(block.conv)
+            cnn_block_layers.append(loaded_conv)
         loaded_block.set_layers(cnn_block_layers)
         return loaded_block
     
@@ -266,14 +267,14 @@ class YOLOv3(nn.Module):
             if layer.bias is not None: #if bias exists
                 num_bias = layer.bias.numel()
                 conv_biases = torch.from_numpy(weights[self.param_idx:self.param_idx + num_bias]).float()
-                conv_biases = conv_biases.view_as(layer.bias.data)
+                conv_biases = conv_biases.view_as(layer.bias)
                 self.param_idx += num_bias
                 layer.bias.data.copy_(conv_biases)
 
             num_weights = layer.weight.numel()
             conv_weights = torch.from_numpy(weights[self.param_idx:self.param_idx + num_weights]).float()
             self.param_idx += num_weights
-            conv_weights = conv_weights.view_as(layer.weight.data)
+            conv_weights = conv_weights.view_as(layer.weight)
             layer.weight.data.copy_(conv_weights)
 
         elif isinstance(layer, nn.BatchNorm2d):

@@ -37,7 +37,6 @@ COCO_LABELS = [
     'boat',
     'traffic light',
     'fire hydrant',
-    '',
     'stop sign',
     'parking meter',
     'bench',

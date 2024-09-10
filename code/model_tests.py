@@ -1,11 +1,11 @@
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
-import cv2
 
 import torch
 from model import CNNBlock, ResidualBlock, ScalePredictionBlock, YOLOv3
 from loss import YOLOLoss
 from dataset import YOLODataset
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('TkAgg')
 from utils import create_csv_files, cells_to_boxes, non_max_suppression, plot_image_with_boxes
 import config
 import os
@@ -84,6 +84,7 @@ def test_YOLOPred():
     model = YOLOv3(weights_path = r'C:\Users\tzong\Documents\YOLO-For-Turbines\weights\yolov3.weights')
     model.load_weights()
     model.eval()
+
     # print(torch.isnan(model.parameters()).any())
     split_folder = r'C:\Users\tzong\Documents\YOLO-For-Turbines\data'
     img_folder_path = r'C:\Users\tzong\Documents\YOLO-For-Turbines\data\test_images'
