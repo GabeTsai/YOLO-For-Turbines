@@ -54,8 +54,8 @@ class CNNBlock(nn.Module):
     def __init__(self, in_channels, out_channels, batch_norm_act = True, **kwargs):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, bias = not batch_norm_act, **kwargs) #using batch norm eliminates need for bias vector
-        self.batch_norm = nn.BatchNorm2d(out_channels)
-        self.leaky_relu = nn.LeakyReLU(0.1)
+        self.batch_norm = nn.BatchNorm2d(out_channels) if batch_norm_act else None
+        self.leaky_relu = nn.LeakyReLU(0.1) if batch_norm_act else None
         self.batch_norm_act = batch_norm_act
 
     def forward(self, x):
@@ -177,4 +177,9 @@ class YOLOv3(nn.Module):
                     layers.append(nn.Upsample(scale_factor = 2))
                     in_channels = in_channels * 3   #since we concatenate with a feature map with twice the number of channels
         return layers
-    
+
+if __name__ == "__main__":
+    model = YOLOv3()
+    print(sum(p.numel() for p in model.parameters()))
+    with open("yolov3_summary.txt", "w") as f:
+        f.write(str(model))
