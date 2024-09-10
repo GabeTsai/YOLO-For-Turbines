@@ -122,7 +122,7 @@ def test_YOLOPred():
         nms_boxes = non_max_suppression(
             bboxes[i], iou_threshold=0.5, obj_threshold= 0.7, box_format="midpoint",
         )
-        print(nms_boxes)
+
         plot_image_with_boxes(x[i].permute(1,2,0).detach().cpu(), nms_boxes, class_list = config.COCO_LABELS)
 
 def main():

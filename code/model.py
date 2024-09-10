@@ -167,10 +167,11 @@ class YOLOv3(nn.Module):
                 continue
 
             x = layer(x)
+            
             print(torch.sum(torch.isnan(x)))
             if torch.sum(torch.isnan(x)) > 0:
-                print(f"Nan in layer {layer}")
                 raise ValueError("Nan in layer")
+            
             if isinstance(layer, ResidualBlock) and layer.num_blocks == 8:
                 route_to_detection_head.append(x)
             
@@ -221,7 +222,6 @@ class YOLOv3(nn.Module):
                 self.layers[i] = self.load_block_weights(block)
             else:
                 self.layers[i] = self.load_layer_weights(block)
-        print(self.param_idx)
         print(f"Weights from {self.weights_path} loaded successfully.")
     
     def load_CNNBlock(self, block):
