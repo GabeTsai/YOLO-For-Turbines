@@ -5,6 +5,7 @@ import cv2
 import torch
 import random
 import os
+from pathlib import Path
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 64
@@ -19,6 +20,8 @@ NMS_IOU_THRESHOLD = 0.45
 
 IMAGE_FOLDER = "../data/images"
 ANNOTATION_FOLDER = "../data/labels"
+WEIGHTS_FOLDER = "../weights"
+WEIGHTS = Path(f"{WEIGHTS_FOLDER}/yolov3.weights")
 DEF_IMAGE_SIZE = 416
 
 MULTI_SCALE_TRAIN_SIZES = [

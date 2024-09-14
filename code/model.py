@@ -155,7 +155,8 @@ class YOLOv3(nn.Module):
             self.cutoff = None
             file_name = os.path.basename(weights_path)
             if '.conv' in weights_path:
-                self.cutoff = int(file_name.split('.')[-1])
+                self.cutoff = int(file_name.split('.')[-1]) 
+            print(self.weights.shape)
 
     def forward(self, x):
         predictions = []
@@ -259,9 +260,25 @@ class YOLOv3(nn.Module):
         return loaded_block
     
     def load_layer_weights(self, layer):
-        if self.layer_id == self.cutoff:
-            return layer
         weights = self.weights
+
+        #if we have reached the cutoff layer, return the layer without loading weights
+        if self.cutoff is not None and self.layer_id >= self.cutoff:
+            if isinstance(layer, nn.Conv2d):
+                if layer.bias is not None: #if bias exists
+                    num_bias = layer.bias.numel()
+                    self.param_idx += num_bias
+
+                num_weights = layer.weight.numel()
+                self.param_idx += num_weights
+
+            elif isinstance(layer, nn.BatchNorm2d):
+                num_bn_params = layer.bias.numel()
+                self.param_idx += num_bn_params * 4  # beta, gamma, running_mean, running_var
+
+            self.layer_id += 1
+            return layer
+        
         if isinstance(layer, nn.Conv2d):
             if layer.bias is not None: #if bias exists
                 num_bias = layer.bias.numel()

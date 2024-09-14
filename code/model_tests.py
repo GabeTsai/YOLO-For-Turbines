@@ -18,9 +18,9 @@ def test_CNNBlock():
     in_channels = 3
     out_channels = 32
     block = CNNBlock(in_channels, out_channels, kernel_size = 1)
-    x = torch.randn((5, 3, config.IMAGE_SIZE, config.IMAGE_SIZE))
+    x = torch.randn((5, 3, config.DEF_IMAGE_SIZE, config.DEF_IMAGE_SIZE))
     out = block(x)
-    assert out.shape == (5, 32, config.IMAGE_SIZE, config.IMAGE_SIZE)
+    assert out.shape == (5, 32, config.DEF_IMAGE_SIZE, config.DEF_IMAGE_SIZE)
 
 def test_ResidualBlock():
     """
@@ -45,7 +45,7 @@ def test_ScalePredictionBlock():
 def test_Yolov3():
     num_classes = 420
     model = YOLOv3(num_classes = num_classes)
-    x = torch.randn((5, 3, config.IMAGE_SIZE, config.IMAGE_SIZE))
+    x = torch.randn((5, 3, config.DEF_IMAGE_SIZE, config.DEF_IMAGE_SIZE))
     out = model(x)
     assert len(out) == 3
     assert out[0].shape == (5, 3, 13, 13, num_classes + 5)
@@ -53,15 +53,15 @@ def test_Yolov3():
     assert out[2].shape == (5, 3, 52, 52, num_classes + 5)
 
 def test_load_weights():
-    model = YOLOv3(weights_path = r'C:\Users\tzong\Documents\YOLO-For-Turbines\weights\yolov3.weights')
+    model = YOLOv3(weights_path = r'C:\Users\tzong\Documents\YOLO-For-Turbines\weights\darknet53.conv.74')
     model.load_weights()
     num_classes = 80
 
-    x = torch.randn((2, 3, config.IMAGE_SIZE, config.IMAGE_SIZE))
+    x = torch.randn((2, 3, config.DEF_IMAGE_SIZE, config.DEF_IMAGE_SIZE))
     out = model(x)
-    assert out[0].shape == (2, 3, config.IMAGE_SIZE//32, config.IMAGE_SIZE//32, num_classes + 5)
-    assert out[1].shape == (2, 3, config.IMAGE_SIZE//16, config.IMAGE_SIZE//16, num_classes + 5)
-    assert out[2].shape == (2, 3, config.IMAGE_SIZE//8, config.IMAGE_SIZE//8, num_classes + 5)
+    assert out[0].shape == (2, 3, config.DEF_IMAGE_SIZE//32, config.DEF_IMAGE_SIZE//32, num_classes + 5)
+    assert out[1].shape == (2, 3, config.DEF_IMAGE_SIZE//16, config.DEF_IMAGE_SIZE//16, num_classes + 5)
+    assert out[2].shape == (2, 3, config.DEF_IMAGE_SIZE//8, config.DEF_IMAGE_SIZE//8, num_classes + 5)
 
 def test_YOLOLoss():
     anchors = torch.tensor([[0.28, 0.22], [0.38, 0.48], [0.9, 0.78]])
@@ -96,7 +96,7 @@ def test_YOLOPred():
         annotation_folder = label_folder_path,
         anchors = anchors,
         batch_size = config.BATCH_SIZE,
-        image_size = config.DEF_IMAGE_SIZE,
+        DEF_IMAGE_SIZE = config.DEF_DEF_IMAGE_SIZE,
         grid_sizes = config.GRID_SIZES,
         transform = config.test_transforms
 
@@ -132,9 +132,9 @@ def main():
     # test_ResidualBlock()
     # test_ScalePredictionBlock()
     # test_Yolov3()
-    # test_load_weights()
+    test_load_weights()
     # test_YOLOLoss()
-    test_YOLOPred()
+    # test_YOLOPred()
     print("All tests passed.")
 
 if __name__ == "__main__":
