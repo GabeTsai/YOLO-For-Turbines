@@ -21,9 +21,9 @@ class YOLOLoss(nn.Module):
         self.cross_entropy = nn.CrossEntropyLoss()
         self.sigmoid = nn.Sigmoid()
 
-        self.lambda_box = 1
+        self.lambda_box = 5
         self.lambda_obj = 1
-        self.lambda_noobj = 1
+        self.lambda_noobj = 0.5
         self.lambda_class = 1
     
     def forward(self, predictions, targets, anchors):
@@ -61,8 +61,9 @@ class YOLOLoss(nn.Module):
             box_wh_pred = torch.exp(predictions[..., 2:4]) * anchors # (N, 3, S, S, 2)
             
             box_preds = torch.cat([box_centroid_pred, box_wh_pred], dim = -1) # (N, 3, S, S, 4)
-            iou_preds = iou(box_preds[obj_mask], targets[..., :4][obj_mask]).detach() # (N, 3, S, S)
-            object_loss = self.mse((predictions[..., 0:1][obj_mask]), (iou_preds * targets[..., 4][obj_mask]))
+            iou_preds = calc_iou(box_preds[obj_mask], targets[..., :4][obj_mask]).detach() # (N, 3, S, S)
+            #second term in mse is equivalent to confidence score
+            object_loss = self.mse((predictions[..., 4:5][obj_mask]), (iou_preds * targets[..., 4:5][obj_mask]))
 
             #BOX LOSS - how well do we predict the box coordinates
             #Convert to width and height to offsets for numerical stability
@@ -73,10 +74,8 @@ class YOLOLoss(nn.Module):
             #CLASS LOSS - how well do we predict the class label
             class_loss = self.cross_entropy(predictions[..., 5:][obj_mask], targets[..., 5][obj_mask])
         
-        return (
-            self.lambda_box * box_loss
-            + self.lambda_obj * object_loss
-            + self.lambda_noobj * no_obj_loss
-            + self.lambda_class * class_loss
-        )
+        return [
+            self.lambda_box * box_loss, self.lambda_obj * object_loss, 
+            self.lambda_noobj * no_obj_loss, self.lambda_class * class_loss
+        ]
 

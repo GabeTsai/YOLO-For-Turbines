@@ -38,7 +38,7 @@ def test_YOLODataset():
             anchor = scaled_anchors[i]
             boxes += cells_to_boxes(y[i], anchors = anchor, grid_size = y[i].shape[2], is_pred = False)[0]
         boxes = non_max_suppression(boxes, iou_threshold = 0.999, obj_threshold = 0.7, box_format = "midpoint")
-        plot_image_with_boxes(x[0].permute(2,1,0), boxes, class_list = CLASSES)
+        plot_image_with_boxes(x[0].permute(2,1,0), boxes, class_list = TURBINE_LABELS)
         
 
 def main():

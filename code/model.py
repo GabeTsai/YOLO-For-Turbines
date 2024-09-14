@@ -168,7 +168,6 @@ class YOLOv3(nn.Module):
 
             x = layer(x)
             
-            print(torch.sum(torch.isnan(x)))
             if torch.sum(torch.isnan(x)) > 0:
                 raise ValueError("Nan in layer")
             

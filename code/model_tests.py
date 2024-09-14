@@ -95,9 +95,11 @@ def test_YOLOPred():
         img_folder = img_folder_path,
         annotation_folder = label_folder_path,
         anchors = anchors,
-        image_size = config.IMAGE_SIZE,
+        batch_size = config.BATCH_SIZE,
+        image_size = config.DEF_IMAGE_SIZE,
         grid_sizes = config.GRID_SIZES,
         transform = config.test_transforms
+
     )
 
     loader = torch.utils.data.DataLoader(dataset, batch_size = 1, shuffle = False)
@@ -120,7 +122,7 @@ def test_YOLOPred():
 
     for i in range(batch_size):
         nms_boxes = non_max_suppression(
-            bboxes[i], iou_threshold=0.5, obj_threshold= 0.7, box_format="midpoint",
+            bboxes[i], iou_threshold=0.5, obj_threshold= 0.7, box_format="center",
         )
 
         plot_image_with_boxes(x[i].permute(1,2,0).detach().cpu(), nms_boxes, class_list = config.COCO_LABELS)

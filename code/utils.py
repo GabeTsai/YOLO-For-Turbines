@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import torch
+import tqdm
 from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -210,7 +211,7 @@ def calc_mAP(pred_boxes, true_boxes, iou_threshold = 0.5, box_format = "center",
             #Calculate the IoU of the detection with all ground truth boxes
             for truth_idx, ground_truth in enumerate(ground_truth_boxes_img):
                 iou = calc_iou(torch.tensor(detection[1:5]), 
-                               torch.tensor(ground_truth[1:5]), box_format = box_format)
+                               torch.tensor(ground_truth[1:5]), bfox_format = box_format)
                 if iou > best_iou:
                     best_iou = iou
                     best_ground_truth_idx = truth_idx
@@ -239,6 +240,135 @@ def calc_mAP(pred_boxes, true_boxes, iou_threshold = 0.5, box_format = "center",
         average_precisions.append(torch.trapz(precisions, recalls))
     
     return sum(average_precisions) / len(average_precisions)
+
+def get_eval_boxes(predictions, targets, iou_threshold, anchors, obj_threshold, box_format = "center", device = config.DEVICE):
+    """
+    Return bounding box predictions and true boxes for evaluation.
+
+    Args:
+        predictions: list of lists containing 3 tensors, each tensor is shape (N, 3, S, S, 5 + num_classes)
+        targets: list of lists containing 3 tensors, each tensor is shape (N, 3, S, S, 6)
+        iou_threshold: float, IoU threshold for overlapping boxes
+        anchors: tensor, shape (3, 3, 2), anchors for each scale
+        obj_threshold: float, objectness threshold for filtering out boxes before any NMS
+        box_format: string, format of the boxes, either "corners" or "center"
+    
+    """
+    data_idx = 0
+    all_box_predictions = []
+    all_true_boxes = []
+    for batch_idx, batch_prediction in enumerate(tqdm(predictions)):
+        x = x.to(device)
+
+        batch_size = x.shape[0]
+        batch_boxes = [[] for _ in range(batch_size)]
+        for i in range(3):  #for each scale
+            grid_size = batch_prediction[i].shape[2]  
+            #Get anchors in 3 by 2 shape
+            anchors_for_scale = torch.tensor([*anchors[i]]).to(device) * grid_size
+            boxes_scale_i = cells_to_boxes(
+                batch_prediction[i], anchors_for_scale, grid_size, is_pred = True
+            )
+            #Add box predictions for each image for this particular scale
+            for idx, (box) in enumerate(boxes_scale_i):
+                batch_boxes[idx] += box
+
+        #Every target box is assigned an anchor from each scale
+        #So we can use the last scale from the previous for loop to get the true boxes
+        batch_true_boxes = cells_to_boxes(
+            targets[batch_idx][2], anchors_for_scale, grid_size, is_pred = False
+        )
+
+        for i in range(batch_size):
+            nms_boxes = non_max_suppression(
+                batch_boxes[i], iou_threshold = iou_threshold, 
+                obj_threshold = obj_threshold, box_format = box_format
+            )
+            #add image id to each box so we know which image it belongs to
+            for nms_box in nms_boxes:   
+                all_box_predictions.append([data_idx] + nms_box)
+
+            for batch_true_box in batch_true_boxes[i]:
+                if batch_true_box[4] > obj_threshold:
+                    all_true_boxes.append([data_idx] + batch_true_box)
+
+            data_idx += 1
+        
+    return all_box_predictions, all_true_boxes
+
+def check_model_accuracy(predictions, targets, object_threshold):
+    """
+    Calculate the class, no object and object accuracy of the predicted class labels.
+
+    Args:
+        predictions: list of lists containing 3 tensors, each tensor is shape (N, 3, S, S, 5 + num_classes)
+        targets: list of lists containing 3 tensors, each tensor is shape (N, 3, S, S, 6)
+        object_threshold: float, objectness (confidence) threshold for filtering out boxes before any NMS
+
+    """
+
+    total_class_preds, num_correct_class = 0, 0
+    total_noobj, num_correct_noobj = 0, 0
+    total_obj, num_correct_obj = 0, 0
+
+    #for each image
+    for prediction, target in zip(predictions, targets):
+        #for each scale
+        for i in range(len(prediction)):
+            target[i] = target[i].to(config.DEVICE)
+            obj_mask = target[i][..., 4] == 1
+            noobj_mask = target[i][..., 4] == 0
+
+            num_correct_class += torch.sum(
+                torch.argmax(prediction[i][..., 5:][obj_mask], dim = -1) == target[i][..., 5][obj_mask]
+            )
+            total_class_preds += torch.sum(obj_mask)
+
+            object_preds = torch.sigmoid(prediction[i][..., 4]) > object_threshold
+            num_correct_obj += torch.sum(object_preds[obj_mask] == target[i][..., 4][obj_mask])
+            total_obj = torch.sum(obj_mask)
+
+            num_correct_noobj += torch.sum(object_preds[noobj_mask] == target[i][..., 4][noobj_mask])
+            total_noobj = torch.sum(noobj_mask)
+
+    print(f"Class accuracy is: {(num_correct_class/(total_class_preds+1e-16))*100:2f}%")
+    print(f"No obj accuracy is: {(num_correct_noobj/(total_noobj+1e-16))*100:2f}%")
+    print(f"Obj accuracy is: {(num_correct_obj/(total_obj+1e-16))*100:2f}%")
+
+    
+def save_checkpoint(model, optimizer, filename = "YOLOv3TurbineCheckpoint.pth.tar"):
+    """
+    Save model and optimizer state to checkpoint file.
+
+    Args:
+        model: torch.nn.Module
+        optimizer: torch.optim.Optimizer
+        filename: str, name of checkpoint file
+    """
+    checkpoint = {
+        "state_dict": model.state_dict(),
+        "optimizer": optimizer.state_dict()
+    }
+    torch.save(checkpoint, filename)
+
+def load_checkpoint(model, optimizer, lr, filename = "YOLOv3TurbineCheckpoint.pth.tar"):
+    """
+    
+    Load model and optimizer state from checkpoint file.
+    
+    Args:
+        model: torch.nn.Module
+        optimizer: torch.optim.Optimizer
+        lr: float, learning rate
+        filename: str, name of checkpoint file
+    """
+
+    checkpoint = torch.load(filename, map_location = config.DEVICE)
+    model.load_state_dict(checkpoint["state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer"])
+
+    for param_group in optimizer.param_groups:
+        param_group["lr"] = lr
 
 def plot_image_with_boxes(image, boxes, class_list):
     """
@@ -277,7 +407,7 @@ def plot_image_with_boxes(image, boxes, class_list):
 
     plt.show()
 
-def get_loaders(train_csv_path, test_csv_path):
+def get_loaders(csv_folder_path):
     """
     Get DataLoader objects for training and testing datasets.
 
@@ -290,8 +420,70 @@ def get_loaders(train_csv_path, test_csv_path):
     """
     from dataset import YOLODataset
 
-    train_dataset = YOLODataset(train_csv_path, transform = None)
-    test_dataset = YOLODataset(test_csv_path, transform = None)
+    IMAGE_SIZE = config.DEF_IMAGE_SIZE
+    train_csv_path = Path(csv_folder_path) / "train.csv"
+    val_csv_path = Path(csv_folder_path) / "val.csv"
+    test_csv_path = Path(csv_folder_path) / "test.csv"
+
+    train_dataset = YOLODataset(csv_split_file = train_csv_path, 
+        img_folder = config.IMAGE_FOLDER,
+        annotation_folder = config.ANNOTATION_FOLDER,
+        anchors = config.ANCHORS,
+        batch_size = config.BATCH_SIZE,
+        image_size = IMAGE_SIZE,
+        grid_sizes = config.GRID_SIZES,
+        num_classes = config.NUM_TURBINE_CLASSES,
+        transform = config.set_train_transforms(image_size = IMAGE_SIZE),
+        multi_scale = True
+        )
+    
+    val_dataset = YOLODataset(csv_split_file = val_csv_path,
+        img_folder = config.IMAGE_FOLDER,
+        annotation_folder = config.ANNOTATION_FOLDER,
+        anchors = config.ANCHORS,
+        batch_size = config.BATCH_SIZE,
+        image_size = IMAGE_SIZE,
+        grid_sizes = config.GRID_SIZES,
+        num_classes = config.NUM_TURBINE_CLASSES,
+        transform = config.test_transforms
+        )
+    
+    test_dataset = YOLODataset(csv_split_file = test_csv_path,
+        img_folder = config.IMAGE_FOLDER,
+        annotation_folder = config.ANNOTATION_FOLDER,
+        anchors = config.ANCHORS,
+        batch_size = config.BATCH_SIZE,
+        image_size = IMAGE_SIZE,
+        grid_sizes = config.GRID_SIZES,
+        num_classes = config.NUM_TURBINE_CLASSES,
+        transform = config.test_transforms
+        )
+
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size = config.BATCH_SIZE,
+        shuffle = True,
+        num_workers = config.NUM_WORKERS,
+        pin_memory = config.PIN_MEMORY
+    )
+
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset,
+        batch_size = config.BATCH_SIZE,
+        shuffle = False,
+        num_workers = config.NUM_WORKERS,
+        pin_memory = config.PIN_MEMORY
+    )
+
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size = config.BATCH_SIZE,
+        shuffle = False,
+        num_workers = config.NUM_WORKERS,
+        pin_memory = config.PIN_MEMORY
+    )
+
+    return train_loader, val_loader, test_loader
    
 def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     """
