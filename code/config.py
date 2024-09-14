@@ -8,7 +8,9 @@ import os
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 64
-NUM_WORKERS = 4
+NUM_PROCESSES = 4
+NUM_WORKERS = int(os.cpu_count()/NUM_PROCESSES) if int(os.cpu_count()/NUM_PROCESSES) <  16 else 16
+NUM_GPUS = torch.cuda.device_count()
 PIN_MEMORY = True
 
 MAP_IOU_THRESHOLD = 0.5

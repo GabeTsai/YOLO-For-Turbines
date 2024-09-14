@@ -407,13 +407,13 @@ def plot_image_with_boxes(image, boxes, class_list):
 
     plt.show()
 
-def get_loaders(csv_folder_path):
+def get_loaders(csv_folder_path, batch_size):
     """
     Get DataLoader objects for training and testing datasets.
 
     Args:
         train_csv_path: str, path to csv file with training data
-        test_csv_path: str, path to csv file with test data
+        batch_size: int
 
     Returns:
         DataLoader objects for training and testing datasets
@@ -429,7 +429,7 @@ def get_loaders(csv_folder_path):
         img_folder = config.IMAGE_FOLDER,
         annotation_folder = config.ANNOTATION_FOLDER,
         anchors = config.ANCHORS,
-        batch_size = config.BATCH_SIZE,
+        batch_size = batch_size,
         image_size = IMAGE_SIZE,
         grid_sizes = config.GRID_SIZES,
         num_classes = config.NUM_TURBINE_CLASSES,
@@ -441,7 +441,7 @@ def get_loaders(csv_folder_path):
         img_folder = config.IMAGE_FOLDER,
         annotation_folder = config.ANNOTATION_FOLDER,
         anchors = config.ANCHORS,
-        batch_size = config.BATCH_SIZE,
+        batch_size = batch_size,
         image_size = IMAGE_SIZE,
         grid_sizes = config.GRID_SIZES,
         num_classes = config.NUM_TURBINE_CLASSES,
@@ -452,7 +452,7 @@ def get_loaders(csv_folder_path):
         img_folder = config.IMAGE_FOLDER,
         annotation_folder = config.ANNOTATION_FOLDER,
         anchors = config.ANCHORS,
-        batch_size = config.BATCH_SIZE,
+        batch_size = batch_size,
         image_size = IMAGE_SIZE,
         grid_sizes = config.GRID_SIZES,
         num_classes = config.NUM_TURBINE_CLASSES,
@@ -461,7 +461,7 @@ def get_loaders(csv_folder_path):
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
-        batch_size = config.BATCH_SIZE,
+        batch_size = batch_size,
         shuffle = True,
         num_workers = config.NUM_WORKERS,
         pin_memory = config.PIN_MEMORY
@@ -469,7 +469,7 @@ def get_loaders(csv_folder_path):
 
     val_loader = torch.utils.data.DataLoader(
         val_dataset,
-        batch_size = config.BATCH_SIZE,
+        batch_size = batch_size,
         shuffle = False,
         num_workers = config.NUM_WORKERS,
         pin_memory = config.PIN_MEMORY
@@ -477,7 +477,7 @@ def get_loaders(csv_folder_path):
 
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
-        batch_size = config.BATCH_SIZE,
+        batch_size = batch_size,
         shuffle = False,
         num_workers = config.NUM_WORKERS,
         pin_memory = config.PIN_MEMORY
