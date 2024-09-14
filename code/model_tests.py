@@ -96,7 +96,7 @@ def test_YOLOPred():
         annotation_folder = label_folder_path,
         anchors = anchors,
         batch_size = config.BATCH_SIZE,
-        DEF_IMAGE_SIZE = config.DEF_DEF_IMAGE_SIZE,
+        image_size = config.DEF_IMAGE_SIZE,
         grid_sizes = config.GRID_SIZES,
         transform = config.test_transforms
 
@@ -132,9 +132,9 @@ def main():
     # test_ResidualBlock()
     # test_ScalePredictionBlock()
     # test_Yolov3()
-    test_load_weights()
+    # test_load_weights()
     # test_YOLOLoss()
-    # test_YOLOPred()
+    test_YOLOPred()
     print("All tests passed.")
 
 if __name__ == "__main__":
