@@ -1,10 +1,18 @@
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+
 import pandas as pd
 import numpy as np
 import torch
 import tqdm
 from pathlib import Path
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
+
+import cv2
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+
 import os
 
 import config
@@ -406,6 +414,47 @@ def plot_image_with_boxes(image, boxes, class_list):
                  bbox={"color": "red", "pad": 0})
 
     plt.show()
+    plt.savefig("example.png")
+
+def collate_fn(batch):
+    """
+    Custom collate function to handle different image sizes in a batch.
+    
+    Args:
+        batch: List of tuples (image, target) where `image` is a numpy array 
+        (H, W, C) and `target` is the corresponding label or target.
+
+    Returns:
+        padded_images: A tensor of padded images, all with the same size.
+        targets: A list of the corresponding targets for the images.
+    """
+
+    images, targets = zip(*batch)
+
+    max_height = max([img.shape[1] for img in images])  # Max height
+    max_width = max([img.shape[2] for img in images])   # Max width
+
+    pad_transform = A.Compose([
+        A.PadIfNeeded(min_height=max_height, min_width=max_width, border_mode=cv2.BORDER_CONSTANT, value = 255),  # Padding to max height/width
+        ToTensorV2()  
+    ])
+
+    padded_images = []
+    batched_targets = []
+
+    for img, target in zip(images, targets):        
+        augmented = pad_transform(image=np.array(img.permute(1, 2, 0)))
+        img_padded = augmented['image']  
+
+        padded_images.append(img_padded)
+
+        batched_targets.append(target)
+
+    padded_images = torch.stack(padded_images)
+    #transpose batched_targets so rows are tuples containing all targets of single scale for each image
+    #then, stack those rows to get list of three elements where each element is tensor [B, 3, g, g, 6]
+    batched_targets = [torch.stack(targets) for targets in zip(*batched_targets)]
+    return padded_images, batched_targets
 
 def get_loaders(csv_folder_path, batch_size):
     """
@@ -464,7 +513,8 @@ def get_loaders(csv_folder_path, batch_size):
         batch_size = batch_size,
         shuffle = True,
         num_workers = config.NUM_WORKERS,
-        pin_memory = config.PIN_MEMORY
+        pin_memory = config.PIN_MEMORY,
+        # collate_fn = collate_fn
     )
 
     val_loader = torch.utils.data.DataLoader(
@@ -472,7 +522,7 @@ def get_loaders(csv_folder_path, batch_size):
         batch_size = batch_size,
         shuffle = False,
         num_workers = config.NUM_WORKERS,
-        pin_memory = config.PIN_MEMORY
+        pin_memory = config.PIN_MEMORY, 
     )
 
     test_loader = torch.utils.data.DataLoader(
@@ -480,7 +530,7 @@ def get_loaders(csv_folder_path, batch_size):
         batch_size = batch_size,
         shuffle = False,
         num_workers = config.NUM_WORKERS,
-        pin_memory = config.PIN_MEMORY
+        pin_memory = config.PIN_MEMORY, 
     )
 
     return train_loader, val_loader, test_loader

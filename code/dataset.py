@@ -114,6 +114,10 @@ class YOLODataset(Dataset):
                     #we don't want to train the model on suboptimal anchors.
                     elif not anchor_taken and iou_with_anchors[anchor_idx] > self.ignore_iou_threshold:
                         targets[scale_idx][anchor_for_scale, i, j, 4] = -1  
+        else:
+            only_image_transform = config.set_only_image_transforms(image_size = self.image_size)
+            augmentations = only_image_transform(image = img)
+            img = augmentations['image']
 
         return img, tuple(targets)
         

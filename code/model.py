@@ -154,7 +154,7 @@ class YOLOv3(nn.Module):
                 self.weights = np.fromfile(f, dtype = np.float32)
             self.cutoff = None
             file_name = os.path.basename(weights_path)
-            if '.conv' in weights_path:
+            if '.conv' in file_name:
                 self.cutoff = int(file_name.split('.')[-1]) 
             print(self.weights.shape)
 

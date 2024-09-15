@@ -59,9 +59,10 @@ class YOLOLoss(nn.Module):
             #Compute box centroid relative to grid cell and width and height of box
             box_centroid_pred = self.sigmoid(predictions[..., :2]) # (N, 3, S, S, 2)
             box_wh_pred = torch.exp(predictions[..., 2:4]) * anchors # (N, 3, S, S, 2)
-            
+
             box_preds = torch.cat([box_centroid_pred, box_wh_pred], dim = -1) # (N, 3, S, S, 4)
-            iou_preds = calc_iou(box_preds[obj_mask], targets[..., :4][obj_mask]).detach() # (N, 3, S, S)
+            iou_preds = calc_iou(box_preds[obj_mask], targets[..., :4][obj_mask]).unsqueeze(1).detach() # (num_objects, 1)
+
             #second term in mse is equivalent to confidence score
             object_loss = self.mse((predictions[..., 4:5][obj_mask]), (iou_preds * targets[..., 4:5][obj_mask]))
 
@@ -72,7 +73,7 @@ class YOLOLoss(nn.Module):
             box_loss = self.mse(predictions[..., :4][obj_mask], targets[..., :4][obj_mask])
 
             #CLASS LOSS - how well do we predict the class label
-            class_loss = self.cross_entropy(predictions[..., 5:][obj_mask], targets[..., 5][obj_mask])
+            class_loss = self.cross_entropy(predictions[..., 5:][obj_mask], targets[..., 5][obj_mask].long())
         
         return [
             self.lambda_box * box_loss, self.lambda_obj * object_loss, 
