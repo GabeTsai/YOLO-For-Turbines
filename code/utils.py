@@ -556,15 +556,16 @@ def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     
     data_list = []
 
+    has_obj_count = len(common_names)
+    negative_count = 0
     for image_name in sorted(image_names):
         if image_name in common_names:
             data_list.append([image_name + '.png', image_name + '.txt'])
-        else:
+        elif negative_count <= has_obj_count:
             data_list.append([image_name + '.png', None])
-
-    assert(len(data_list) == len(images))
+            negative_count += 1
+    
     data_arr = np.array(data_list)
-
     rng = np.random.default_rng(seed=3407)  
     random_array = rng.integers(len(data_arr), size=len(data_arr))
     data_arr = data_arr[random_array]
@@ -586,3 +587,6 @@ def seed_everything(seed = 3407):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
+
+if __name__ == "__main__":
+    create_csv_files(config.IMAGE_FOLDER, config.ANNOTATION_FOLDER, config.CSV_FOLDER, {"train": 0.70, "val": 0.20, "test": 0.10 })

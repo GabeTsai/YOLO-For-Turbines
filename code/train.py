@@ -30,7 +30,7 @@ def choose_hyperparameter_config():
     return {
         "lr": tune.loguniform(1e-5, 1e-2),
         "weight_decay": tune.loguniform(1e-3, 1e-1),
-        "batch_size": tune.choice([16, 32, 64, 128]), 
+        "batch_size": 64, 
         "momentum": tune.uniform(0.8, 0.99),
         "num_epochs": 100
     }
