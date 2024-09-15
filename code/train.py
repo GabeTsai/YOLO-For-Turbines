@@ -1,6 +1,7 @@
 import config
 import torch
 from torch.amp import GradScaler
+from torch.optim.lr_scheduler import LinearLR, SequentialLR
 import ray
 from ray import tune, train
 from ray.tune.schedulers import ASHAScheduler
@@ -30,7 +31,7 @@ def choose_hyperparameter_config():
     return {
         "lr": tune.loguniform(1e-5, 1e-2),
         "weight_decay": tune.loguniform(1e-3, 1e-1),
-        "batch_size": tune.choice([16, 32, 64, 128]), 
+        "batch_size": 64, 
         "momentum": tune.uniform(0.8, 0.99),
         "num_epochs": 100
     }
@@ -160,6 +161,7 @@ def train(hyperparam_config, csv_folder_path, model_folder_path):
                                 momentum = hyperparam_config["momentum"], weight_decay = hyperparam_config["weight_decay"])
     loss_fn = YOLOLoss()
     grad_scaler = torch.amp.GradScaler()
+    warmup_scheduler = LinearLR(optimizer, start_factor = 1e-6, end_factor = 1, steps = 1000)
 
     train_loader, val_loader, _ = get_loaders(csv_folder_path, batch_size = hyperparam_config["batch_size"])
 
