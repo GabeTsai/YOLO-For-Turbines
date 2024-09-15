@@ -35,36 +35,61 @@ def choose_hyperparameter_config():
 
 def train_one_epoch(train_loader, model, optimizer, loss_fn, grad_scaler, scaled_anchors):
     loop = tqdm(train_loader, leave = True)
-    losses = [] # we have losses for each scale
+    
     model.train()
+    tot_box_loss, tot_obj_loss, tot_no_obj_loss, tot_class_loss = 0, 0, 0, 0
+    tot_loss = 0
+
     for batch_idx, (x, y) in enumerate(loop):
         x = x.to(config.DEVICE)
+
         y0, y1, y2 = (  # y0, y1, y2 are targets for each scale
             y[0].to(config.DEVICE),
             y[1].to(config.DEVICE),
             y[2].to(config.DEVICE)
         )
 
-        with torch.cuda.amp.autocast(device_type = "cuda"): #Darknet uses mixed precision training
+        with torch.amp.autocast(device_type = config.DEVICE): #Darknet uses mixed precision training
             out = model(x)
             loss = (
                 loss_fn(out[0], y0, scaled_anchors[0])
                 + loss_fn(out[1], y1, scaled_anchors[1])
                 + loss_fn(out[2], y2, scaled_anchors[2])
             )
+        losses = torch.tensor([loss_fn(out[0], y0, scaled_anchors[0]),
+                                   loss_fn(out[1], y1, scaled_anchors[1]),
+                                   loss_fn(out[2], y2, scaled_anchors[2])])
         
-        losses.append(loss.item())
+        box_loss = losses[:, 0].sum()
+        obj_loss = losses[:, 1].sum()
+        no_obj_loss = losses[:, 2].sum()
+        class_loss = losses[:, 3].sum()
+
+        loss = box_loss + obj_loss + no_obj_loss + class_loss
+
+        tot_box_loss += box_loss
+        tot_obj_loss += obj_loss
+        tot_no_obj_loss += no_obj_loss
+        tot_class_loss += class_loss
+        tot_loss += loss
+
         optimizer.zero_grad()
         grad_scaler.scale(loss).backward()
         grad_scaler.step(optimizer)
         grad_scaler.update()    #adjust scaling factor if underflow/overflow occurs
         loop.set_postfix(loss = loss.item())
-    return sum(losses) / len(losses)
+
+    wandb.log({"train_box_loss": tot_box_loss.item()/len(train_loader)})
+    wandb.log({"train_obj_loss": tot_obj_loss.item()/len(train_loader)})
+    wandb.log({"train_no_obj_loss": tot_no_obj_loss.item()/len(train_loader)})
+    wandb.log({"train_class_loss": tot_class_loss.item()/len(train_loader)})
+
+    return tot_loss.item() / len(losses)
 
 def val_one_epoch(val_loader, model, loss_fn, scaled_anchors, epoch):
     loop = tqdm(val_loader, leave = True)
-    obj_losses, no_obj_losses, box_losses, class_losses = [], [], [], []
-    losses = []
+    tot_box_loss, tot_obj_loss, tot_no_obj_loss, tot_class_loss = 0, 0, 0, 0
+    tot_loss = 0
     model.eval()
     predictions = []
     targets = []
@@ -85,26 +110,26 @@ def val_one_epoch(val_loader, model, loss_fn, scaled_anchors, epoch):
                                    loss_fn(out[1], y1, scaled_anchors[1]),
                                    loss_fn(out[2], y2, scaled_anchors[2])])
             
-            box_loss = losses[:, 0].sum().item()
-            obj_loss = losses[:, 1].sum().item()
-            no_obj_loss = losses[:, 2].sum().item()
-            class_loss = losses[:, 3].sum().item()
+            box_loss = losses[:, 0].sum()
+            obj_loss = losses[:, 1].sum()
+            no_obj_loss = losses[:, 2].sum()
+            class_loss = losses[:, 3].sum()
 
             loss = box_loss + obj_loss + no_obj_loss + class_loss
 
-            box_losses.append(box_loss)
-            obj_losses.append(obj_loss)
-            no_obj_losses.append(no_obj_loss)
-            class_losses.append(class_loss)
-            losses.append(loss.item())
+            tot_box_loss += box_loss
+            tot_obj_loss += obj_loss
+            tot_no_obj_loss += no_obj_loss
+            tot_class_loss += class_loss
+            tot_loss += loss
 
             predictions.append(out)
             loop.set_postfix(loss = loss.item())
 
-    wandb.log({"box_loss": sum(box_losses) / len(box_losses)})
-    wandb.log({"obj_loss": sum(obj_losses) / len(obj_losses)})
-    wandb.log({"no_obj_loss": sum(no_obj_losses) / len(no_obj_losses)})
-    wandb.log({"class_loss": sum(class_losses) / len(class_losses)})
+    wandb.log({"val_box_loss": tot_box_loss.item()/len(val_loader)})
+    wandb.log({"val_obj_loss": tot_obj_loss.item()/len(val_loader)})
+    wandb.log({"val_no_obj_loss": tot_no_obj_loss.item()/len(val_loader)})
+    wandb.log({"val_class_loss": tot_class_loss.item()/len(val_loader)})
 
     if (epoch + 1) % 5 == 0:
         check_model_accuracy(predictions, targets, object_threshold = config.CONF_THRESHOLD)
@@ -117,7 +142,7 @@ def val_one_epoch(val_loader, model, loss_fn, scaled_anchors, epoch):
         wandb.log({"mAP": mAP.item()})
         print(f"MAP: {mAP.item()}")
 
-    return sum(losses) / len(losses)
+    return tot_loss.item() / len(val_loader)
 
 def train(hyperparam_config, csv_folder_path, model_folder_path):
 
