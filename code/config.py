@@ -9,7 +9,7 @@ from pathlib import Path
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 64
-NUM_PROCESSES = 4
+NUM_PROCESSES = 1
 NUM_WORKERS = int(os.cpu_count()/NUM_PROCESSES) if int(os.cpu_count()/NUM_PROCESSES) <  16 else 16
 NUM_GPUS = torch.cuda.device_count()
 PIN_MEMORY = True
@@ -18,10 +18,14 @@ MAP_IOU_THRESHOLD = 0.5
 CONF_THRESHOLD = 0.3
 NMS_IOU_THRESHOLD = 0.45
 
-IMAGE_FOLDER = "../data/images"
-ANNOTATION_FOLDER = "../data/labels"
-WEIGHTS_FOLDER = "../weights"
-WEIGHTS = Path(f"{WEIGHTS_FOLDER}/yolov3.weights")
+PROJ_FOLDER = "/home/groups/yzwang/gabriel_files/YOLO-For-Turbines/"
+IMAGE_FOLDER = f"{PROJ_FOLDER}data/images"
+ANNOTATION_FOLDER = f"{PROJ_FOLDER}data/labels"
+WEIGHTS_FOLDER = f"{PROJ_FOLDER}weights"
+MODEL_FOLDER = f"{PROJ_FOLDER}models"
+CSV_FOLDER = f"{PROJ_FOLDER}data"
+
+COCO_WEIGHTS = Path(f"{WEIGHTS_FOLDER}/yolov3.weights")
 DEF_IMAGE_SIZE = 416
 
 MULTI_SCALE_TRAIN_SIZES = [
@@ -36,24 +40,23 @@ ANCHORS = [
 GRID_SIZES = [DEF_IMAGE_SIZE//32, DEF_IMAGE_SIZE//16, DEF_IMAGE_SIZE//8]
 
 def set_train_transforms(image_size = DEF_IMAGE_SIZE):
-    scale = random.uniform(1.0, 1.5)
 
     train_transforms = A.Compose(
         [
-            A.LongestMaxSize(max_size=int(image_size * scale)), # resize so we can crop and shift image
+            A.LongestMaxSize(max_size=int(image_size)), # resize image
             A.PadIfNeeded(
-                min_height=int(image_size * scale),
-                min_width=int(image_size * scale),
-                border_mode=cv2.BORDER_CONSTANT,
+                min_height=int(image_size),
+                min_width=int(image_size),
+                border_mode=cv2.BORDER_CONSTANT, 
+                value = 255
             ),
-            A.RandomCrop(width=image_size, height=image_size),
             A.ColorJitter(brightness=0.6, contrast=0.6, saturation=0.6, hue=0.6, p=0.4),
             A.OneOf(    
                 [
                     A.ShiftScaleRotate(
-                        rotate_limit=20, p=0.5, border_mode=cv2.BORDER_CONSTANT
+                        rotate_limit=20, p=0.5, border_mode=cv2.BORDER_CONSTANT, value = 255
                     ),
-                    A.Affine(shear=15, p=0.5, mode="constant"),
+                    A.Affine(shear=15, mode=0, p=0.5),
                 ],
                 p=1.0,
             ),
@@ -66,7 +69,7 @@ def set_train_transforms(image_size = DEF_IMAGE_SIZE):
             A.Normalize(mean=[0, 0, 0], std=[1, 1, 1], max_pixel_value=255,),
             ToTensorV2(),
         ],
-        bbox_params=A.BboxParams(format="yolo", min_visibility=0.4, label_fields=[],),
+        bbox_params=A.BboxParams(format="yolo", min_visibility=0.4, label_fields=[], clip = True),
     )
     return train_transforms
 
@@ -81,6 +84,21 @@ test_transforms = A.Compose(
     ],
     bbox_params=A.BboxParams(format="yolo", min_visibility=0.4, label_fields=[]),
 )
+
+def set_only_image_transforms(image_size = DEF_IMAGE_SIZE):
+    only_image_transforms = A.Compose(
+        [
+            A.LongestMaxSize(max_size = image_size),
+            A.PadIfNeeded(
+                min_height= image_size, min_width= image_size, border_mode=cv2.BORDER_CONSTANT, value = 255
+            ),
+            A.Normalize(mean=[0, 0, 0], std=[1, 1, 1], max_pixel_value=255,),
+            ToTensorV2(),
+        ]
+    )
+
+    return only_image_transforms
+
 
 TURBINE_LABELS = ["dirt", "damage"]
 NUM_TURBINE_CLASSES = len(TURBINE_LABELS)
