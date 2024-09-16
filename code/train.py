@@ -30,7 +30,7 @@ from tqdm import tqdm
 
 def choose_hyperparameter_config():
     return {
-        "lr": 0.0001,
+        "lr": tune.loguniform(1e-5, 1e-3),
         "weight_decay": 0.0005,
         "batch_size": 64, 
         "momentum": 0.9,
@@ -164,9 +164,9 @@ def train(hyperparam_config, csv_folder_path, model_folder_path, identifier):
     model = YOLOv3(num_classes = config.NUM_TURBINE_CLASSES, 
                     weights_path = Path(config.WEIGHTS_FOLDER) / "darknet53.conv.74").to(config.DEVICE)
     model.load_weights()
-    # optimizer = torch.optim.SGD(model.parameters(), lr = hyperparam_config["lr"], 
-    #                             momentum = hyperparam_config["momentum"], weight_decay = hyperparam_config["weight_decay"])
-    optimizer = torch.optim.AdamW(model.parameters(), lr = hyperparam_config["lr"], weight_decay = hyperparam_config["weight_decay"])
+    optimizer = torch.optim.SGD(model.parameters(), lr = hyperparam_config["lr"], 
+                                momentum = hyperparam_config["momentum"], weight_decay = hyperparam_config["weight_decay"])
+    # optimizer = torch.optim.AdamW(model.parameters(), lr = hyperparam_config["lr"], weight_decay = hyperparam_config["weight_decay"])
     loss_fn = YOLOLoss()
     grad_scaler = torch.amp.GradScaler()
     # warmup_scheduler = LinearLR(optimizer, start_factor = 1e-6, end_factor = 1, steps = 1000)

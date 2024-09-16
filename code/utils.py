@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 import torch
 from tqdm import tqdm
+from tqdm import tqdm
 from pathlib import Path
 
 import cv2
@@ -73,6 +74,9 @@ def calc_iou(boxes1, boxes2, box_format = "center"):
     box_width = torch.clamp(xB - xA, min=0)
     box_height = torch.clamp(yB - yA, min=0)
     intersection_area = box_width * box_height
+    
+    boxes1_area = boxes1_converted[..., 2] * boxes1_converted[..., 3]
+    boxes2_area = boxes2_converted[..., 2] * boxes2_converted[..., 3]
     
     boxes1_area = boxes1_converted[..., 2] * boxes1_converted[..., 3]
     boxes2_area = boxes2_converted[..., 2] * boxes2_converted[..., 3]
@@ -160,10 +164,6 @@ def non_max_suppression(boxes, iou_threshold, obj_threshold, box_format = "corne
     """
     
     filtered_boxes = [box for box in boxes if box[4] > obj_threshold]
-    
-    if len(filtered_boxes) == 0:
-        return []
-
     filtered_boxes = torch.tensor(sorted(filtered_boxes, key = lambda x: x[4], reverse = True))
     
     nms_boxes = []
@@ -184,10 +184,17 @@ def non_max_suppression(boxes, iou_threshold, obj_threshold, box_format = "corne
 
         # Filter the boxes
         filtered_boxes = filtered_boxes[mask]
+
+        # filtered_boxes = [
+        #     box for box in filtered_boxes
+        #     if int(box[5]) != int(largest_score_box[5]) #keep boxes with different class labels
+        #     or calc_iou(torch.tensor(largest_score_box[:4]), torch.tensor(box[:4]), 
+        #            box_format = box_format).item() < iou_threshold
+        # ]
         
         nms_boxes.append(largest_score_box)
 
-    nms_boxes = torch.stack(nms_boxes)
+    nms_boxes = torch.stack(nms_boxes) if len(nms_boxes) > 0 else []
 
     return nms_boxes.tolist()
 
@@ -291,7 +298,9 @@ def get_eval_boxes(predictions, targets, iou_threshold, anchors, obj_threshold, 
     all_box_predictions = []
     all_true_boxes = []
 
+
     for batch_idx, batch_prediction in enumerate(tqdm(predictions)):
+        batch_size = batch_prediction[0].shape[0]
         batch_size = batch_prediction[0].shape[0]
         batch_boxes = [[] for _ in range(batch_size)]
         for i in range(3):  #for each scale
@@ -327,6 +336,7 @@ def get_eval_boxes(predictions, targets, iou_threshold, anchors, obj_threshold, 
 
             data_idx += 1
 
+    print("Finished getting eval boxes") 
     return all_box_predictions, all_true_boxes
 
 def check_model_accuracy(predictions, targets, object_threshold):
