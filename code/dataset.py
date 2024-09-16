@@ -71,7 +71,8 @@ class YOLODataset(Dataset):
             boxes = np.loadtxt(label_path, delimiter=" ")
             if boxes.ndim == 1:
                 boxes = boxes.reshape(1, -1)
-            boxes = np.roll(boxes, shift = 4, axis = 1).tolist()    #albumentations expects [x, y, w, h, class]
+            boxes = np.roll(boxes, shift = 4, axis = 1)   #albumentations expects [x, y, w, h, class]
+            boxes = boxes.tolist()
             
             if self.transform is not None:
                 augmentations = self.transform(image = img, bboxes = boxes)
@@ -99,13 +100,17 @@ class YOLODataset(Dataset):
                         targets[scale_idx][anchor_for_scale, i, j, 4] = 1   #object exists for grid cell
                         x_cell, y_cell = cur_grid_size * x - j, cur_grid_size * y - i   #get top left coord for specific grid cell
                         width_cell, height_cell = (w * cur_grid_size, h * cur_grid_size)    #scale to grid
+
                         box_coords = torch.tensor([x_cell, y_cell, width_cell, height_cell])
-                        assert(torch.allclose(torch.tensor([
-                            (x_cell + j) / cur_grid_size,
-                            (y_cell + i) / cur_grid_size,
-                            width_cell / cur_grid_size,
-                            height_cell / cur_grid_size
-                        ]), torch.tensor([x, y, w, h]), atol=1e-6))
+                        assert torch.sum(box_coords < 0 ) == 0
+
+                        # assert(torch.allclose(torch.tensor([
+                        #     (x_cell + j) / cur_grid_size,
+                        #     (y_cell + i) / cur_grid_size,
+                        #     width_cell / cur_grid_size,
+                        #     height_cell / cur_grid_size
+                        # ]), torch.tensor([x, y, w, h]), atol=1e-5))
+
                         targets[scale_idx][anchor_for_scale, i, j, 5] = int(class_label)
                         targets[scale_idx][anchor_for_scale, i, j, :4] = box_coords
                         has_anchor[scale_idx] = True

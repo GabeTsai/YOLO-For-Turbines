@@ -1,15 +1,15 @@
-
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+import numpy as np
 import torch
 from model import CNNBlock, ResidualBlock, ScalePredictionBlock, YOLOv3
 from loss import YOLOLoss
 from dataset import YOLODataset
 
 
-from utils import create_csv_files, cells_to_boxes, non_max_suppression, plot_image_with_boxes
+from utils import create_csv_files, cells_to_boxes, non_max_suppression, plot_image_with_boxes, calc_mAP
 import config
 import os
 
@@ -116,6 +116,7 @@ def test_YOLOPred():
         bboxes = [[] for _ in range(x.shape[0])]
         for i in range(3):
             batch_size, A, S, _, _ = out[i].shape
+            print(batch_size)
             anchor = scaled_anchors[i]
             boxes_scale_i = cells_to_boxes(
                 out[i], anchor, grid_size=S, is_pred=True
@@ -123,21 +124,39 @@ def test_YOLOPred():
             for idx, (box) in enumerate(boxes_scale_i):
                 bboxes[idx] += box
 
+    true_boxes = []
+
+    for i in range(y[0].shape[1]): # for each anchor:
+        anchor = scaled_anchors[i]
+        true_boxes += cells_to_boxes(y[i], anchors = anchor, grid_size = y[i].shape[2], is_pred = False)[0]    
+
+    true_boxes = non_max_suppression(true_boxes, iou_threshold = 0.999, obj_threshold = 0.7, box_format = "center")
+    true_boxes_id = []
+
+    for i in range(len(true_boxes)):
+        true_boxes_id.append(np.insert(true_boxes[i], 0, 0))
+
     for i in range(batch_size):
         nms_boxes = non_max_suppression(
             bboxes[i], iou_threshold=0.5, obj_threshold= 0.7, box_format="center",
         )
+        nms_boxes_id = []
+        for i in range(len(nms_boxes)):
+            nms_boxes_id.append(np.insert(nms_boxes[i], 0, 0))
 
-        plot_image_with_boxes(x[i].permute(1,2,0).detach().cpu(), nms_boxes, class_list = config.COCO_LABELS)
-
+        map = calc_mAP(nms_boxes_id, true_boxes_id, num_classes = config.NUM_COCO_CLASSES)
+        print(map.item())
+        print(x[0].shape)
+        plot_image_with_boxes(x[0].permute(1,2,0).detach().cpu(), nms_boxes, class_list = config.COCO_LABELS)
+        
 def main():
     # test_CNNBlock()
     # test_ResidualBlock()
     # test_ScalePredictionBlock()
     # test_Yolov3()
     # test_load_weights()
-    test_YOLOLoss()
-    # test_YOLOPred()
+    # test_YOLOLoss()
+    test_YOLOPred()
     print("All tests passed.")
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ from pathlib import Path
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 64
-NUM_PROCESSES = 1
+NUM_PROCESSES = 2
 NUM_WORKERS = int(os.cpu_count()/NUM_PROCESSES) if int(os.cpu_count()/NUM_PROCESSES) <  16 else 16
 NUM_GPUS = torch.cuda.device_count()
 PIN_MEMORY = True
@@ -82,7 +82,7 @@ test_transforms = A.Compose(
         A.Normalize(mean=[0, 0, 0], std=[1, 1, 1], max_pixel_value=255,),
         ToTensorV2(),
     ],
-    bbox_params=A.BboxParams(format="yolo", min_visibility=0.4, label_fields=[]),
+    bbox_params=A.BboxParams(format="yolo", min_visibility=0.4, label_fields=[], clip = True),
 )
 
 def set_only_image_transforms(image_size = DEF_IMAGE_SIZE):
