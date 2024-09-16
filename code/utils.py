@@ -7,8 +7,6 @@ import pandas as pd
 import numpy as np
 import torch
 from tqdm import tqdm
-from tqdm import tqdm
-from tqdm import tqdm
 from pathlib import Path
 
 import cv2
@@ -78,12 +76,6 @@ def calc_iou(boxes1, boxes2, box_format = "center"):
     
     boxes1_area = boxes1_converted[..., 2] * boxes1_converted[..., 3]
     boxes2_area = boxes2_converted[..., 2] * boxes2_converted[..., 3]
-    
-    boxes1_area = boxes1_converted[..., 2] * boxes1_converted[..., 3]
-    boxes2_area = boxes2_converted[..., 2] * boxes2_converted[..., 3]
-    
-    boxes1_area = boxes1_converted[..., 2] * boxes1_converted[..., 3]
-    boxes2_area = boxes2_converted[..., 2] * boxes2_converted[..., 3]
     union_area = boxes1_area + boxes2_area - intersection_area
     
     iou = intersection_area / (union_area + 1e-6)
@@ -150,6 +142,7 @@ def cells_to_boxes(predictions, anchors, grid_size, is_pred = True):
     converted_boxes = torch.cat((cx, cy, w_h, object_scores, best_class), dim = -1)
     #(B, 3, S, S, 6) --> #(B, 3*S*S, 6)
     converted_boxes = converted_boxes.reshape(batch_size, num_anchors * grid_size * grid_size, 6)
+    
     return converted_boxes.tolist()
 
 def non_max_suppression(boxes, iou_threshold, obj_threshold, box_format = "corners"):
@@ -170,6 +163,8 @@ def non_max_suppression(boxes, iou_threshold, obj_threshold, box_format = "corne
     filtered_boxes = [box for box in boxes if box[4] > obj_threshold]
     filtered_boxes = torch.tensor(sorted(filtered_boxes, key = lambda x: x[4], reverse = True))
     
+    print(f"num boxes: {len(filtered_boxes)}")
+
     nms_boxes = []
     
     while filtered_boxes.size(0) > 0:
@@ -198,9 +193,7 @@ def non_max_suppression(boxes, iou_threshold, obj_threshold, box_format = "corne
         
         nms_boxes.append(largest_score_box)
 
-    nms_boxes = torch.stack(nms_boxes) if len(nms_boxes) > 0 else []
-
-    return nms_boxes.tolist()
+    return nms_boxes
 
 def calc_mAP(pred_boxes, true_boxes, iou_threshold = 0.5, box_format = "center", num_classes = 20):
     """
@@ -221,6 +214,7 @@ def calc_mAP(pred_boxes, true_boxes, iou_threshold = 0.5, box_format = "center",
         #Select boxes that belong to class c
         detections = [detection for detection in pred_boxes if detection[-1] == c]
         ground_truths = [true_box for true_box in true_boxes if true_box[-1] == c]
+
         total_true_boxes = len(ground_truths)
 
         #Image has no boxes for that class. Skip to next class
@@ -244,22 +238,21 @@ def calc_mAP(pred_boxes, true_boxes, iou_threshold = 0.5, box_format = "center",
 
         for detection_idx, detection in enumerate(detections):
             #Get all ground truths that have same image as detection
-
             ground_truth_boxes_img = [
                 true_box for true_box in ground_truths if true_box[0] == detection[0]
             ]
-        
+
             best_iou = 0
             best_ground_truth_idx = 0   #index of ground truth box with best iou with detection
             
             #Calculate the IoU of the detection with all ground truth boxes
             for truth_idx, ground_truth in enumerate(ground_truth_boxes_img):
                 iou = calc_iou(torch.tensor(detection[1:5]), 
-                               torch.tensor(ground_truth[1:5]), box_format = box_format)
+                               torch.tensor(ground_truth[1:5]), bfox_format = box_format)
                 if iou > best_iou:
                     best_iou = iou
                     best_ground_truth_idx = truth_idx
-            
+
             #We meet the iou criteria, but check if the ground truth box has already been assigned to another detection
             if best_iou > iou_threshold:
                 if bboxes_per_image[detection[0]][best_ground_truth_idx] == 0:  #if ground truth box hasn't been assigned
@@ -270,7 +263,7 @@ def calc_mAP(pred_boxes, true_boxes, iou_threshold = 0.5, box_format = "center",
             #We don't meet the iou criteria - FP
             else:
                 FP[detection_idx] = 1
-
+        
         cum_TP = torch.cumsum(TP, dim = 0)
         cum_FP = torch.cumsum(FP, dim = 0)
         precisions = cum_TP/(cum_TP + cum_FP)
@@ -302,16 +295,13 @@ def get_eval_boxes(predictions, targets, iou_threshold, anchors, obj_threshold, 
     all_box_predictions = []
     all_true_boxes = []
 
-
     for batch_idx, batch_prediction in enumerate(tqdm(predictions)):
-        batch_size = batch_prediction[0].shape[0]
         batch_size = batch_prediction[0].shape[0]
         batch_boxes = [[] for _ in range(batch_size)]
         for i in range(3):  #for each scale
             grid_size = batch_prediction[i].shape[2]  
             #Get anchors in 3 by 2 shape
             anchors_for_scale = torch.tensor([*anchors[i]]).to(device) * grid_size
-
             boxes_scale_i = cells_to_boxes(
                 batch_prediction[i], anchors_for_scale, grid_size, is_pred = True
             )
@@ -339,7 +329,6 @@ def get_eval_boxes(predictions, targets, iou_threshold, anchors, obj_threshold, 
                     all_true_boxes.append([data_idx] + batch_true_box)
 
             data_idx += 1
-
     print("Finished getting eval boxes") 
     return all_box_predictions, all_true_boxes
 
@@ -526,8 +515,7 @@ def get_loaders(csv_folder_path, batch_size):
         image_size = IMAGE_SIZE,
         grid_sizes = config.GRID_SIZES,
         num_classes = config.NUM_TURBINE_CLASSES,
-        # transform = config.set_train_transforms(image_size = IMAGE_SIZE),
-        transform = config.test_transforms,
+        transform = config.set_train_transforms(image_size = IMAGE_SIZE),
         multi_scale = True
         )
     
@@ -606,10 +594,10 @@ def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     for image_name in sorted(image_names):
         if image_name in common_names:
             data_list.append([image_name + '.png', image_name + '.txt'])
-        elif negative_count < has_obj_count:
+        elif negative_count <= has_obj_count:
             data_list.append([image_name + '.png', None])
             negative_count += 1
-
+    
     data_arr = np.array(data_list)
     rng = np.random.default_rng(seed=3407)  
     random_array = rng.integers(len(data_arr), size=len(data_arr))
@@ -618,7 +606,7 @@ def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     start_idx = 0
     for split in split_map:
         end_idx = start_idx + int(split_map[split] * len(data_arr))
-        split_data = data_arr[start_idx:end_idx + 1]
+        split_data = data_arr[start_idx:end_idx]
         np.savetxt(Path(f"{split_folder}/{split}.csv"), split_data, fmt = "%s", delimiter = ",")
 
 def seed_everything(seed = 3407):

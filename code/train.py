@@ -253,9 +253,9 @@ def tune_model(csv_folder_path, model_folder_path, identifier):
 
 def main():
     seed_everything()
-    # tune_model(config.CSV_FOLDER, config.MODEL_FOLDER, 'LR')
-    hyperparam_config = choose_hyperparameter_config()
-    train(hyperparam_config, config.CSV_FOLDER, config.MODEL_FOLDER, 'test')
+    tune_model(config.CSV_FOLDER, config.MODEL_FOLDER, 'LR')
+    # hyperparam_config = choose_hyperparameter_config()
+    # train(hyperparam_config, config.CSV_FOLDER, config.MODEL_FOLDER, 'test')
 
 if __name__ == "__main__":
     main()
