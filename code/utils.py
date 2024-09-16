@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 from tqdm import tqdm
+from tqdm import tqdm
 from pathlib import Path
 
 import cv2
@@ -74,6 +75,9 @@ def calc_iou(boxes1, boxes2, box_format = "center"):
     box_width = torch.clamp(xB - xA, min=0)
     box_height = torch.clamp(yB - yA, min=0)
     intersection_area = box_width * box_height
+    
+    boxes1_area = boxes1_converted[..., 2] * boxes1_converted[..., 3]
+    boxes2_area = boxes2_converted[..., 2] * boxes2_converted[..., 3]
     
     boxes1_area = boxes1_converted[..., 2] * boxes1_converted[..., 3]
     boxes2_area = boxes2_converted[..., 2] * boxes2_converted[..., 3]
