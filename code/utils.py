@@ -6,7 +6,7 @@ import matplotlib.patches as patches
 import pandas as pd
 import numpy as np
 import torch
-import tqdm
+from tqdm import tqdm
 from pathlib import Path
 
 import cv2
@@ -51,21 +51,33 @@ def calc_iou(boxes1, boxes2, box_format = "center"):
     if boxes2.dim() == 1:
         boxes2 = boxes2.unsqueeze(0)
 
-    # Convert center coordinates to top left coordinates.
+    # Convert center coordinates to top left coordinates without modifying in place
     if box_format == "center":
-        boxes1[..., :2] = boxes1[..., :2] - boxes1[..., 2:]/2
-        boxes2[..., :2] = boxes2[..., :2] - boxes2[..., 2:]/2
+        boxes1_converted = torch.zeros_like(boxes1)
+        boxes2_converted = torch.zeros_like(boxes2)
+        boxes1_converted[..., :2] = boxes1[..., :2] - boxes1[..., 2:] / 2
+        boxes1_converted[..., 2:4] = boxes1[..., 2:4]
 
-    xA = torch.max(boxes1[..., 0], boxes2[..., 0])
-    yA = torch.max(boxes1[..., 1], boxes2[..., 1])
-    xB = torch.min(boxes1[..., 0] + boxes1[..., 2], boxes2[..., 0] + boxes2[..., 2])
-    yB = torch.min(boxes1[..., 1] + boxes1[..., 3], boxes2[..., 1] + boxes2[..., 3])
+        boxes2_converted[..., :2] = boxes2[..., :2] - boxes2[..., 2:] / 2
+        boxes2_converted[..., 2:4] = boxes2[..., 2:4]
+    else:
+        boxes1_converted = boxes1
+        boxes2_converted = boxes2
+
+    # Now compute IoU using the converted boxes
+    xA = torch.max(boxes1_converted[..., 0], boxes2_converted[..., 0])
+    yA = torch.max(boxes1_converted[..., 1], boxes2_converted[..., 1])
+    xB = torch.min(boxes1_converted[..., 0] + boxes1_converted[..., 2], boxes2_converted[..., 0] + boxes2_converted[..., 2])
+    yB = torch.min(boxes1_converted[..., 1] + boxes1_converted[..., 3], boxes2_converted[..., 1] + boxes2_converted[..., 3])
+    
     box_width = torch.clamp(xB - xA, min=0)
     box_height = torch.clamp(yB - yA, min=0)
     intersection_area = box_width * box_height
-    boxes1_area = boxes1[..., 2] * boxes1[..., 3]
-    boxes2_area = boxes2[..., 2] * boxes2[..., 3]
+    
+    boxes1_area = boxes1_converted[..., 2] * boxes1_converted[..., 3]
+    boxes2_area = boxes2_converted[..., 2] * boxes2_converted[..., 3]
     union_area = boxes1_area + boxes2_area - intersection_area
+    
     iou = intersection_area / (union_area + 1e-6)
     return iou
 
@@ -149,18 +161,35 @@ def non_max_suppression(boxes, iou_threshold, obj_threshold, box_format = "corne
     """
     
     filtered_boxes = [box for box in boxes if box[4] > obj_threshold]
-    filtered_boxes = sorted(filtered_boxes, key = lambda x: x[4], reverse = True)
+    filtered_boxes = torch.tensor(sorted(filtered_boxes, key = lambda x: x[4], reverse = True))
+    
+    print(f"num boxes: {len(filtered_boxes)}")
+
     nms_boxes = []
+    
+    while filtered_boxes.size(0) > 0:
+        
+        largest_score_box = filtered_boxes[0]
 
-    while filtered_boxes:
-        largest_score_box = filtered_boxes.pop(0)
+        filtered_boxes = filtered_boxes[1:]
+        ious = calc_iou(largest_score_box[:4].unsqueeze(0), filtered_boxes[:, :4], box_format)
 
-        filtered_boxes = [
-            box for box in filtered_boxes
-            if int(box[5]) != int(largest_score_box[5]) #keep boxes with different class labels
-            or calc_iou(torch.tensor(largest_score_box[:4]), torch.tensor(box[:4]), 
-                   box_format = box_format).item() < iou_threshold
-        ]
+        # Keep boxes with different class labels or IoU less than the threshold
+        class_mask = filtered_boxes[:, 5] != largest_score_box[5]  # Different class
+        iou_mask = ious < iou_threshold  # IoU less than threshold
+
+        # Apply both masks (keep boxes either with different classes or low IoU)
+        mask = class_mask | iou_mask
+
+        # Filter the boxes
+        filtered_boxes = filtered_boxes[mask]
+
+        # filtered_boxes = [
+        #     box for box in filtered_boxes
+        #     if int(box[5]) != int(largest_score_box[5]) #keep boxes with different class labels
+        #     or calc_iou(torch.tensor(largest_score_box[:4]), torch.tensor(box[:4]), 
+        #            box_format = box_format).item() < iou_threshold
+        # ]
         
         nms_boxes.append(largest_score_box)
 
@@ -265,10 +294,9 @@ def get_eval_boxes(predictions, targets, iou_threshold, anchors, obj_threshold, 
     data_idx = 0
     all_box_predictions = []
     all_true_boxes = []
-    for batch_idx, batch_prediction in enumerate(tqdm(predictions)):
-        x = x.to(device)
 
-        batch_size = x.shape[0]
+    for batch_idx, batch_prediction in enumerate(tqdm(predictions)):
+        batch_size = batch_prediction[0].shape[0]
         batch_boxes = [[] for _ in range(batch_size)]
         for i in range(3):  #for each scale
             grid_size = batch_prediction[i].shape[2]  
@@ -301,7 +329,7 @@ def get_eval_boxes(predictions, targets, iou_threshold, anchors, obj_threshold, 
                     all_true_boxes.append([data_idx] + batch_true_box)
 
             data_idx += 1
-        
+    print("Finished getting eval boxes") 
     return all_box_predictions, all_true_boxes
 
 def check_model_accuracy(predictions, targets, object_threshold):
@@ -334,15 +362,20 @@ def check_model_accuracy(predictions, targets, object_threshold):
 
             object_preds = torch.sigmoid(prediction[i][..., 4]) > object_threshold
             num_correct_obj += torch.sum(object_preds[obj_mask] == target[i][..., 4][obj_mask])
-            total_obj = torch.sum(obj_mask)
+            total_obj += torch.sum(obj_mask)
 
             num_correct_noobj += torch.sum(object_preds[noobj_mask] == target[i][..., 4][noobj_mask])
-            total_noobj = torch.sum(noobj_mask)
+            total_noobj += torch.sum(noobj_mask)
 
-    print(f"Class accuracy is: {(num_correct_class/(total_class_preds+1e-16))*100:2f}%")
-    print(f"No obj accuracy is: {(num_correct_noobj/(total_noobj+1e-16))*100:2f}%")
-    print(f"Obj accuracy is: {(num_correct_obj/(total_obj+1e-16))*100:2f}%")
+    class_accuracy = num_correct_class/(total_class_preds + 1e-16)
+    noobj_accuracy = num_correct_noobj/(total_noobj + 1e-16)
+    obj_accuracy = num_correct_obj/(total_obj + 1e-16)
 
+    print(f"Class accuracy is: {(class_accuracy)*100:2f}%")
+    print(f"No obj accuracy is: {(noobj_accuracy)*100:2f}%")
+    print(f"Obj accuracy is: {(obj_accuracy)*100:2f}%")
+    
+    return class_accuracy, noobj_accuracy, obj_accuracy
     
 def save_checkpoint(model, optimizer, filename = "YOLOv3TurbineCheckpoint.pth.tar"):
     """
