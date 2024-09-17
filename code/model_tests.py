@@ -7,12 +7,11 @@ import torch
 from model import CNNBlock, ResidualBlock, ScalePredictionBlock, YOLOv3
 from loss import YOLOLoss
 from dataset import YOLODataset
+from PIL import Image
 
-
-from utils import create_csv_files, cells_to_boxes, non_max_suppression, plot_image_with_boxes, calc_mAP
+from utils import create_csv_files, cells_to_boxes, non_max_suppression, plot_original, calc_mAP
 import config
 import os
-
 
 def test_CNNBlock():
     """
@@ -102,7 +101,6 @@ def test_YOLOPred():
         image_size = config.DEF_IMAGE_SIZE,
         grid_sizes = config.GRID_SIZES,
         transform = config.test_transforms
-
     )
 
     loader = torch.utils.data.DataLoader(dataset, batch_size = 1, shuffle = False)
@@ -110,13 +108,12 @@ def test_YOLOPred():
                     torch.tensor(config.GRID_SIZES).unsqueeze(1).unsqueeze(1).repeat(1,3,2)
     )
     x, y = next(iter(loader))
-
+    print(x.shape)
     with torch.no_grad():
         out = model(x)
         bboxes = [[] for _ in range(x.shape[0])]
         for i in range(3):
             batch_size, A, S, _, _ = out[i].shape
-            print(batch_size)
             anchor = scaled_anchors[i]
             boxes_scale_i = cells_to_boxes(
                 out[i], anchor, grid_size=S, is_pred=True
@@ -135,20 +132,23 @@ def test_YOLOPred():
 
     for i in range(len(true_boxes)):
         true_boxes_id.append(np.insert(true_boxes[i], 0, 0))
-
+    
+    original_image_names = os.listdir(f"{config.PROJ_FOLDER}/data/test_images")
     for i in range(batch_size):
         nms_boxes = non_max_suppression(
             bboxes[i], iou_threshold=0.5, obj_threshold= 0.7, box_format="center",
         )
         nms_boxes_id = []
-        for i in range(len(nms_boxes)):
-            nms_boxes_id.append(np.insert(nms_boxes[i], 0, 0))
-
-        map = calc_mAP(nms_boxes_id, true_boxes_id, num_classes = config.NUM_COCO_CLASSES)
-        print(map.item())
-        print(x[0].shape)
-        plot_image_with_boxes(x[0].permute(1,2,0).detach().cpu(), nms_boxes, class_list = config.COCO_LABELS)
+        for j in range(len(nms_boxes)):
+            nms_boxes_id.append(np.insert(nms_boxes[j], 0, 0))
         
+        original_image = np.array(Image.open(f"{config.PROJ_FOLDER}/data/test_images/{original_image_names[i]}").convert('RGB'))
+        map = calc_mAP(nms_boxes_id, true_boxes_id, num_classes = config.NUM_COCO_CLASSES)
+
+        plot_original(original_image, x[0].permute(1,2,0).detach().cpu(), nms_boxes, class_list = config.COCO_LABELS)
+
+
+
 def main():
     # test_CNNBlock()
     # test_ResidualBlock()

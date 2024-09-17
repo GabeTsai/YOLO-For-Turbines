@@ -30,10 +30,10 @@ from tqdm import tqdm
 
 def choose_hyperparameter_config():
     return {
-        "lr": tune.loguniform(1e-5, 1e-3),
+        "lr": tune.loguniform(7e-4, 2e-3),
         "weight_decay": 0.0005,
         "batch_size": 64, 
-        "momentum": 0.9,
+        "momentum": tune.uniform(0.9, 0.95),
         "max_num_steps": 10000
     }
 
@@ -79,6 +79,9 @@ def train_one_epoch(train_loader, model, optimizer, loss_fn, grad_scaler, scaled
         tot_loss += loss.item()
 
         loop.set_postfix(loss=loss.item())
+
+    if torch.sum(torch.isnan(loss)) > 0:
+        raise ValueError("Nan loss")
 
     wandb.log({"train_box_loss": tot_box_loss / len(train_loader)})
     wandb.log({"train_obj_loss": tot_obj_loss / len(train_loader)})
@@ -128,14 +131,17 @@ def val_one_epoch(val_loader, model, loss_fn, scaled_anchors, epoch):
             predictions.append(out)
             loop.set_postfix(loss=loss.item())
 
+    if torch.sum(torch.isnan(loss)) > 0:
+        raise ValueError("Nan loss")
+
     wandb.log({"val_box_loss": tot_box_loss / len(val_loader)})
     wandb.log({"val_obj_loss": tot_obj_loss / len(val_loader)})
     wandb.log({"val_no_obj_loss": tot_no_obj_loss / len(val_loader)})
     wandb.log({"val_class_loss": tot_class_loss / len(val_loader)})
 
     val_loss = tot_loss / len(val_loader)
-    session.report({"val_loss": val_loss})
 
+    mAP = None
     if (epoch + 1) % 5 == 0:
         class_accuracy, noobj_accuracy, obj_accuracy = check_model_accuracy(predictions, targets, object_threshold=config.CONF_THRESHOLD)
         pred_boxes, true_boxes = get_eval_boxes(predictions, targets, 
@@ -143,26 +149,27 @@ def val_one_epoch(val_loader, model, loss_fn, scaled_anchors, epoch):
                                                 anchors=config.ANCHORS, 
                                                 obj_threshold=config.CONF_THRESHOLD)
         mAP = calc_mAP(pred_boxes, true_boxes, iou_threshold=config.MAP_IOU_THRESHOLD, 
-                       num_classes=config.NUM_TURBINE_CLASSES)
+                       num_classes=config.NUM_TURBINE_CLASSES).item()
         wandb.log({"class accuracy: ": class_accuracy})
         wandb.log({"noobj accuracy: ": noobj_accuracy})
         wandb.log({"obj accuracy: ": obj_accuracy})
-        wandb.log({"mAP": mAP.item()})
-        print(f"MAP: {mAP.item()}")
+        wandb.log({"mAP": mAP})
+        session.report({"mAP": mAP})
+        print(f"MAP: {mAP}")
 
-    return val_loss
+    return val_loss, mAP
 
 def train(hyperparam_config, csv_folder_path, model_folder_path, identifier):
-
     wandb.init(
-    #   project=f"YOLOv3_Turbine_Detection_Test",
-    #   config = hyperparam_config
-    #   )
+      project=f"YOLOv3_Turbine_Detection_{identifier}",
+      config = hyperparam_config
+      )
 
     wandb.log(hyperparam_config)
 
     model = YOLOv3(num_classes = config.NUM_TURBINE_CLASSES, 
-                    weights_path = Path(config.WEIGHTS_FOLDER) / "darknet53.conv.74").to(config.DEVICE)
+                    weights_path = Path(config.WEIGHTS_FOLDER) / "darknet53.conv.74", 
+                    freeze = config.FREEZE_BACKBONE).to(config.DEVICE,)
     model.load_weights()
     optimizer = torch.optim.SGD(model.parameters(), lr = hyperparam_config["lr"], 
                                 momentum = hyperparam_config["momentum"], weight_decay = hyperparam_config["weight_decay"])
@@ -177,7 +184,7 @@ def train(hyperparam_config, csv_folder_path, model_folder_path, identifier):
                       * torch.tensor(config.GRID_SIZES).unsqueeze(1).unsqueeze(1).repeat(1,3,2)
     ).to(config.DEVICE)
 
-    min_val_loss = float("inf")
+    best_mAP = 0
     epoch = 0
     
     num_epochs = hyperparam_config["max_num_steps"] // len(train_loader)
@@ -190,9 +197,9 @@ def train(hyperparam_config, csv_folder_path, model_folder_path, identifier):
         print(f"Train loss at epoch {epoch}: {train_loss}")
         wandb.log({"train_loss": train_loss})
 
-        val_loss = val_one_epoch(val_loader, model, loss_fn, scaled_anchors, epoch)
-        if val_loss < min_val_loss:
-            min_val_loss = val_loss
+        val_loss, mAP = val_one_epoch(val_loader, model, loss_fn, scaled_anchors, epoch)
+        if mAP is not None and mAP > best_mAP:
+            best_mAP = mAP
             best_model = model
             early_stop = int(0.05 * num_epochs)
         else:
@@ -203,17 +210,19 @@ def train(hyperparam_config, csv_folder_path, model_folder_path, identifier):
         wandb.log({"lowest_val_loss": min_val_loss})
 
         epoch += 1
-    save_checkpoint(best_model, optimizer, filename = Path(model_folder_path) / f"best_model_{identifier}.pth")
-    wandb.log_model(Path(model_folder_path) / "best_model.pth", name = f"best_model_{identifier}")
+        
+        if (epoch + 1) % (0.25 * num_epochs) == 0:
+            save_checkpoint(best_model, optimizer, filename = Path(model_folder_path) / f"best_model_{identifier}.pth")
+            wandb.log_model(str(Path(model_folder_path) / f"best_model_{identifier}.pth"), name=f"best_model_{identifier}")
     wandb.finish()
 
 def tune_model(csv_folder_path, model_folder_path, identifier):
     wandb.login()
     hyperparam_config = choose_hyperparameter_config()
-
+    
     scheduler = ASHAScheduler(
-        metric = "val_loss", 
-        mode = "min", 
+        metric = "mAP", 
+        mode = "max", 
         grace_period = 2,
         brackets = 2, 
         reduction_factor = 2
@@ -238,24 +247,28 @@ def tune_model(csv_folder_path, model_folder_path, identifier):
     )
     
     results = tuner.fit()
-    best_result = results.get_best_result(metric="mean_val_loss", mode="min")
+    best_result = results.get_best_result(metric="mAP", mode="max")
     best_config = best_result.config
     best_metrics = best_result.metrics
     print("Best hyperparameters found were: ", best_config)
-    print("Best validation loss found was: ", best_metrics['mean_val_loss'])
+    print("Last mAP found was: ", best_metrics['mAP'])
 
     best_settings_map = {
         "config": best_config,
-        "loss": best_metrics['mean_val_loss']
+        "mAP": best_metrics['mAP']
     }
     with open (f'{model_folder_path}/best_config.json', 'w') as f:
         json.dump(best_settings_map, f)
 
 def main():
     seed_everything()
-    tune_model(config.CSV_FOLDER, config.MODEL_FOLDER, 'LR')
-    # hyperparam_config = choose_hyperparameter_config()
-    # train(hyperparam_config, config.CSV_FOLDER, config.MODEL_FOLDER, 'test')
+    # tune_model(config.CSV_FOLDER, config.MODEL_FOLDER, 'LR')
+    hyperparam_config = {"lr": 0.0009137556704163823, 
+                        "weight_decay": 0.0005, 
+                        "batch_size": 64, 
+                        "momentum": 0.9333075350105609, 
+                        "max_num_steps": 10000}
+    train(hyperparam_config, config.CSV_FOLDER, config.MODEL_FOLDER, 'LR')
 
 if __name__ == "__main__":
     main()

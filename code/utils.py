@@ -163,8 +163,6 @@ def non_max_suppression(boxes, iou_threshold, obj_threshold, box_format = "corne
     filtered_boxes = [box for box in boxes if box[4] > obj_threshold]
     filtered_boxes = torch.tensor(sorted(filtered_boxes, key = lambda x: x[4], reverse = True))
     
-    print(f"num boxes: {len(filtered_boxes)}")
-
     nms_boxes = []
     
     while filtered_boxes.size(0) > 0:
@@ -183,16 +181,11 @@ def non_max_suppression(boxes, iou_threshold, obj_threshold, box_format = "corne
 
         # Filter the boxes
         filtered_boxes = filtered_boxes[mask]
-
-        # filtered_boxes = [
-        #     box for box in filtered_boxes
-        #     if int(box[5]) != int(largest_score_box[5]) #keep boxes with different class labels
-        #     or calc_iou(torch.tensor(largest_score_box[:4]), torch.tensor(box[:4]), 
-        #            box_format = box_format).item() < iou_threshold
-        # ]
         
         nms_boxes.append(largest_score_box)
-
+    
+    nms_boxes = torch.stack(nms_boxes).tolist() if len(nms_boxes) > 0 else []
+    
     return nms_boxes
 
 def calc_mAP(pred_boxes, true_boxes, iou_threshold = 0.5, box_format = "center", num_classes = 20):
@@ -248,7 +241,7 @@ def calc_mAP(pred_boxes, true_boxes, iou_threshold = 0.5, box_format = "center",
             #Calculate the IoU of the detection with all ground truth boxes
             for truth_idx, ground_truth in enumerate(ground_truth_boxes_img):
                 iou = calc_iou(torch.tensor(detection[1:5]), 
-                               torch.tensor(ground_truth[1:5]), bfox_format = box_format)
+                               torch.tensor(ground_truth[1:5]), box_format = box_format)
                 if iou > best_iou:
                     best_iou = iou
                     best_ground_truth_idx = truth_idx
@@ -329,7 +322,6 @@ def get_eval_boxes(predictions, targets, iou_threshold, anchors, obj_threshold, 
                     all_true_boxes.append([data_idx] + batch_true_box)
 
             data_idx += 1
-    print("Finished getting eval boxes") 
     return all_box_predictions, all_true_boxes
 
 def check_model_accuracy(predictions, targets, object_threshold):
@@ -428,8 +420,9 @@ def plot_image_with_boxes(image, boxes, class_list):
     image = np.array(image)
 
     ax.imshow(image)
-    im_h, im_w = image.shape[0], image.shape[1]
     
+    im_h, im_w = image.shape[0], image.shape[1]
+    print(im_h, im_w)
     for box in boxes:
         x, y, w, h, _, class_label = box
         top_left_x = (box[0] - box[2]/2) * im_w
@@ -446,9 +439,37 @@ def plot_image_with_boxes(image, boxes, class_list):
                  color = 'white', 
                  bbox={"color": "red", "pad": 0})
 
+    plt.axis('off')
     plt.show()
-    plt.savefig("example.png")
+    plt.savefig("example.png", bbox_inches='tight', pad_inches=0)
 
+def plot_original(original_image, resized_image, boxes, class_list):
+    o_h, o_w, _ = original_image.shape
+    r_h, r_w, _ = resized_image.shape
+
+    # Calculate scaling factor based on the original size and the resized image
+    scale = min(r_w / o_w, r_h / o_h)
+    
+    # Compute the new dimensions of the resized image (before padding)
+    new_width = int(o_w * scale)
+    new_height = int(o_h * scale)
+
+    # Calculate padding applied to the resized image
+    pad_width = (r_w - new_width) // 2
+    pad_height = (r_h - new_height) // 2
+    
+    adjusted_boxes = []
+    for box in boxes:
+        # Remove padding and convert normalized coordinates to pixel values in the original image
+        x_center = (box[0] * r_w - pad_width) / new_width
+        y_center = (box[1] * r_h - pad_height) / new_height
+        width = (box[2] * r_w) / new_width
+        height = (box[3] * r_h) / new_height
+
+        adjusted_boxes.append([x_center, y_center, width, height, box[4], box[5]])
+    # Now plot the boxes on the original image
+    plot_image_with_boxes(original_image, adjusted_boxes, class_list)
+    
 def collate_fn(batch):
     """
     Custom collate function to handle different image sizes in a batch.
@@ -594,7 +615,7 @@ def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     for image_name in sorted(image_names):
         if image_name in common_names:
             data_list.append([image_name + '.png', image_name + '.txt'])
-        elif negative_count <= has_obj_count:
+        elif negative_count < has_obj_count:
             data_list.append([image_name + '.png', None])
             negative_count += 1
     

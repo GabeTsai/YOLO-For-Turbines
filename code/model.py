@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import config
 
 """
 C. @aladdinpersson
@@ -16,7 +17,7 @@ List is structured by "B" indicating a residual block followed by the number of 
 
 """
 
-config = [
+layer_config = [
     (32, 3, 1),
     (64, 3, 2),
     ["B", 1], #each residual block downsamples the feature map then upsamples it by a factor of 2
@@ -138,7 +139,7 @@ class ScalePredictionBlock(nn.Module):
         return x.permute(0, 1, 3, 4, 2) #(B, 3, scale_dim, scale_dim, num_classes + 5)
 
 class YOLOv3(nn.Module):
-    def __init__(self, in_channels = 3, num_classes = 80, weights_path = None):
+    def __init__(self, in_channels = 3, num_classes = 80, weights_path = None, freeze = False):
         super().__init__()
         self.in_channels = in_channels
         self.num_classes = num_classes
@@ -146,6 +147,7 @@ class YOLOv3(nn.Module):
         self.param_idx = 0
         self.layer_id = 0
         self.weights_path = None
+        self.freeze = freeze
 
         if weights_path:
             self.weights_path = weights_path
@@ -184,7 +186,7 @@ class YOLOv3(nn.Module):
     def _create_model_layers(self):
         layers = nn.ModuleList()
         in_channels = self.in_channels
-        for block in config:
+        for block in layer_config:
             if isinstance(block, tuple):
                 out_channels, kernel_size, stride = block
                 padding = 1 if kernel_size == 3 else 0
@@ -211,8 +213,8 @@ class YOLOv3(nn.Module):
                     layers.append(nn.Upsample(scale_factor = 2))
                     in_channels = in_channels * 3   #since we concatenate with a feature map with twice the number of channels
 
-        return layers
-    
+        return layers        
+
     def load_weights(self):        
         for i, block in enumerate(self.layers):
             if isinstance(block, CNNBlock):
@@ -292,6 +294,10 @@ class YOLOv3(nn.Module):
             self.param_idx += num_weights
             conv_weights = conv_weights.view_as(layer.weight)
             layer.weight.data.copy_(conv_weights)
+            if self.freeze:
+                if layer.bias is not None:
+                    layer.bias.requires_grad = False
+                layer.weight.requires_grad = False
 
         elif isinstance(layer, nn.BatchNorm2d):
             num_bn_params = layer.bias.numel()
@@ -312,14 +318,21 @@ class YOLOv3(nn.Module):
             layer.running_var.data.copy_(bn_running_var.view_as(layer.running_var))
             self.param_idx += num_bn_params
 
+            if self.freeze:
+                layer.bias.requires_grad = False
+                layer.weight.requires_grad = False
+                layer.running_mean.requires_grad = False
+                layer.running_var.requires_grad = False
+
         self.layer_id += 1
         return layer
 
 if __name__ == "__main__":
     num_classes = 80
     IMAGE_SIZE = 416
-    model = YOLOv3(num_classes=num_classes)
-    
+    model = YOLOv3(weights_path = config.DARKNET_WEIGHTS, freeze = True)
+    model.load_weights()
+
     print(sum(p.numel() for p in model.parameters()))
 
     x = torch.randn((2, 3, IMAGE_SIZE, IMAGE_SIZE))

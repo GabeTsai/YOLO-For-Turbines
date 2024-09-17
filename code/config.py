@@ -9,23 +9,25 @@ from pathlib import Path
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 64
-NUM_PROCESSES = 2
+NUM_PROCESSES = 4
 NUM_WORKERS = int(os.cpu_count()/NUM_PROCESSES) if int(os.cpu_count()/NUM_PROCESSES) <  16 else 16
 NUM_GPUS = torch.cuda.device_count()
 PIN_MEMORY = True
 
 MAP_IOU_THRESHOLD = 0.5
-CONF_THRESHOLD = 0.3
+CONF_THRESHOLD = 0.5
 NMS_IOU_THRESHOLD = 0.45
 
-PROJ_FOLDER = "/home/groups/yzwang/gabriel_files/YOLO-For-Turbines/"
-IMAGE_FOLDER = f"{PROJ_FOLDER}data/images"
-ANNOTATION_FOLDER = f"{PROJ_FOLDER}data/labels"
-WEIGHTS_FOLDER = f"{PROJ_FOLDER}weights"
-MODEL_FOLDER = f"{PROJ_FOLDER}models"
-CSV_FOLDER = f"{PROJ_FOLDER}data"
+PROJ_FOLDER = "/home/groups/yzwang/gabriel_files/YOLO-For-Turbines"
+IMAGE_FOLDER = f"{PROJ_FOLDER}/data/images"
+ANNOTATION_FOLDER = f"{PROJ_FOLDER}/data/labels"
+WEIGHTS_FOLDER = f"{PROJ_FOLDER}/weights"
+MODEL_FOLDER = f"{PROJ_FOLDER}/models"
+CSV_FOLDER = f"{PROJ_FOLDER}/data"
 
 COCO_WEIGHTS = Path(f"{WEIGHTS_FOLDER}/yolov3.weights")
+DARKNET_WEIGHTS = Path(WEIGHTS_FOLDER) / "darknet53.conv.74"
+FREEZE_BACKBONE = True
 DEF_IMAGE_SIZE = 416
 
 MULTI_SCALE_TRAIN_SIZES = [
