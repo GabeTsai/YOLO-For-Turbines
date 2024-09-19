@@ -272,7 +272,7 @@ def calc_mAP(pred_boxes, true_boxes, iou_threshold = 0.5, box_format = "center",
     
     return sum(average_precisions) / len(average_precisions)
 
-def get_eval_boxes(predictions, targets, iou_threshold, anchors, obj_threshold, box_format = "center", device = config.DEVICE):
+def get_eval_boxes(loader, model, iou_threshold, anchors, obj_threshold, box_format = "center", device = config.DEVICE):
     """
     Return bounding box predictions and true boxes for evaluation.
 
@@ -288,16 +288,20 @@ def get_eval_boxes(predictions, targets, iou_threshold, anchors, obj_threshold, 
     data_idx = 0
     all_box_predictions = []
     all_true_boxes = []
+    model.eval()
+    for batch_idx, (x, targets) in enumerate(tqdm(loader)):
+        x = x.to(device)
+        with torch.no_grad():
+            predictions = model(x)
 
-    for batch_idx, batch_prediction in enumerate(tqdm(predictions)):
-        batch_size = batch_prediction[0].shape[0]
+        batch_size = x.shape[0]
         batch_boxes = [[] for _ in range(batch_size)]
         for i in range(3):  #for each scale
-            grid_size = batch_prediction[i].shape[2]  
+            grid_size = predictions[i].shape[2]  
             #Get anchors in 3 by 2 shape
             anchors_for_scale = torch.tensor([*anchors[i]]).to(device) * grid_size
             boxes_scale_i = cells_to_boxes(
-                batch_prediction[i], anchors_for_scale, grid_size, is_pred = True
+                predictions[i], anchors_for_scale, grid_size, is_pred = True
             )
             #Add box predictions for each image for this particular scale
             for idx, (box) in enumerate(boxes_scale_i):
@@ -306,7 +310,7 @@ def get_eval_boxes(predictions, targets, iou_threshold, anchors, obj_threshold, 
         #Every target box is assigned an anchor from each scale
         #So we can use the last scale from the previous for loop to get the true boxes
         batch_true_boxes = cells_to_boxes(
-            targets[batch_idx][2], anchors_for_scale, grid_size, is_pred = False
+            targets[2], anchors_for_scale, grid_size, is_pred = False
         )
 
         for i in range(batch_size):
@@ -323,37 +327,42 @@ def get_eval_boxes(predictions, targets, iou_threshold, anchors, obj_threshold, 
                     all_true_boxes.append([data_idx] + batch_true_box)
 
             data_idx += 1
+    model.train()
     return all_box_predictions, all_true_boxes
 
-def check_model_accuracy(predictions, targets, object_threshold):
+def check_model_accuracy(model, loader, object_threshold):
     """
     Calculate the class, no object and object accuracy of the predicted class labels.
 
     Args:
-        predictions: list of lists containing 3 tensors, each tensor is shape (N, 3, S, S, 5 + num_classes)
-        targets: list of lists containing 3 tensors, each tensor is shape (N, 3, S, S, 6)
+        model
+        loader
         object_threshold: float, objectness (confidence) threshold for filtering out boxes before any NMS
 
     """
-
+    model.eval()
     total_class_preds, num_correct_class = 0, 0
     total_noobj, num_correct_noobj = 0, 0
     total_obj, num_correct_obj = 0, 0
 
     #for each image
-    for prediction, target in zip(predictions, targets):
-        #for each scale
-        for i in range(len(prediction)):
+    for idx, (x, target) in enumerate(tqdm(loader)):
+        x = x.to(config.DEVICE)
+
+        with torch.no_grad():
+            out = model(x)
+
+        for i in range(3):
             target[i] = target[i].to(config.DEVICE)
             obj_mask = target[i][..., 4] == 1
             noobj_mask = target[i][..., 4] == 0
 
             num_correct_class += torch.sum(
-                torch.argmax(prediction[i][..., 5:][obj_mask], dim = -1) == target[i][..., 5][obj_mask]
+                torch.argmax(out[i][..., 5:][obj_mask], dim = -1) == target[i][..., 5][obj_mask]
             )
             total_class_preds += torch.sum(obj_mask)
 
-            object_preds = torch.sigmoid(prediction[i][..., 4]) > object_threshold
+            object_preds = torch.sigmoid(out[i][..., 4]) > object_threshold
             num_correct_obj += torch.sum(object_preds[obj_mask] == target[i][..., 4][obj_mask])
             total_obj += torch.sum(obj_mask)
 
@@ -367,7 +376,7 @@ def check_model_accuracy(predictions, targets, object_threshold):
     print(f"Class accuracy is: {(class_accuracy)*100:2f}%")
     print(f"No obj accuracy is: {(noobj_accuracy)*100:2f}%")
     print(f"Obj accuracy is: {(obj_accuracy)*100:2f}%")
-    
+    model.train()
     return class_accuracy, noobj_accuracy, obj_accuracy
     
 def save_checkpoint(model, optimizer, filename = "YOLOv3TurbineCheckpoint.pth.tar"):
@@ -405,7 +414,7 @@ def load_checkpoint(model, optimizer, lr, filename = ""):
 
     print(f"Checkpoint loaded from {filename}")
 
-def plot_image_with_boxes(image, boxes, class_list):
+def plot_image_with_boxes(image, boxes, class_list, image_name = "example"):
     """
     Plot image with bounding boxes.
 
@@ -428,7 +437,6 @@ def plot_image_with_boxes(image, boxes, class_list):
     
     # Get image dimensions
     im_h, im_w = image.shape[0], image.shape[1]
-    print(im_h, im_w)
     
     # Plot bounding boxes
     for box in boxes:
@@ -437,23 +445,22 @@ def plot_image_with_boxes(image, boxes, class_list):
         top_left_y = (y - h / 2) * im_h  # Calculate top-left corner y
         box_w = w * im_w  # Calculate box width
         box_h = h * im_h  # Calculate box height
-        
         # Draw rectangle
         rect = patches.Rectangle((top_left_x, top_left_y), box_w, box_h, linewidth=1, edgecolor='r', facecolor='none')
         ax.add_patch(rect)
 
         # Add class label
-        class_label = int(class_label)
-        class_name = class_list[class_label]
-        plt.text(top_left_x, top_left_y, s=class_name, 
-                 size='xx-small', color='white', 
-                 bbox={"color": "red", "pad": 0})
+        # class_label = int(class_label)
+        # class_name = class_list[class_label]
+        # plt.text(top_left_x, top_left_y, s=class_name, 
+        #          size='xxx-small', color='white', 
+        #          bbox={"color": "red", "pad": 0})
 
     plt.axis('off')
 
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-    plt.savefig("example.png", bbox_inches='tight', pad_inches=0)
+    plt.savefig(f"{image_name}.png", bbox_inches='tight', pad_inches=0)
     plt.show()
 
 def plot_original(original_image, resized_image, boxes, class_list):
@@ -509,7 +516,6 @@ def mosaic_augmentation(imgs, anns, size):
     |_ _ _ _ _ _|_ _ _ _ _ _ |
     4. Take a square cutout of with length = size. Top left coords of cutout must be between 40 to 60 percent of top left image.
     """
-
     resize_aug = A.Compose([
         A.LongestMaxSize(max_size = size)
         ], 
@@ -529,15 +535,20 @@ def mosaic_augmentation(imgs, anns, size):
         resize = resize_aug(image = imgs[i], bboxes = anns[i])
         imgs[i] = resize['image']
         anns[i] = np.array(resize['bboxes'])
-        anns[i][:, :4] = anns[i][:, :4]/2 
+        #since the mosaic is double the size and our coordinates were originally normalized to an image 
+        #half the size of the mosaic, the new normalized box coordinates need to be halved so that 
+        #they're relative to the mosaic
+        if len(anns[i]) > 0:
+            anns[i][:, :4] = anns[i][:, :4]/2 
+
     h, w, _ = imgs[0].shape
     ## 2. Combine images, then pad
-    combined_no_padding = np.zeros((2*h, 2*w, 3), dtype = np.int32)
+    combined_no_padding = np.zeros((2*h, 2*w, 3), dtype = np.uint8)
 
-    combined_no_padding[:h, :w, :] = np.array(imgs[0], dtype = np.int32)
-    combined_no_padding[:h, w:, :] = np.array(imgs[1], dtype = np.int32)
-    combined_no_padding[h:, :w, :] = np.array(imgs[2], dtype = np.int32)
-    combined_no_padding[h:, w:, :] = np.array(imgs[3], dtype = np.int32)
+    combined_no_padding[:h, :w, :] = np.array(imgs[0], dtype = np.uint8)
+    combined_no_padding[:h, w:, :] = np.array(imgs[1], dtype = np.uint8)
+    combined_no_padding[h:, :w, :] = np.array(imgs[2], dtype = np.uint8)
+    combined_no_padding[h:, w:, :] = np.array(imgs[3], dtype = np.uint8)
     
     ## 3. Shift bounding boxes to correct positions
 
@@ -545,21 +556,23 @@ def mosaic_augmentation(imgs, anns, size):
     new_boxes = []
 
     #Bounding boxes for top left image are already correct
-    new_boxes.append(anns[0])
+    if len(anns[0]) > 0:
+        new_boxes.append(anns[0])
     
     #Shift x coord of bounding boxes for top right by size/2
-
-    anns[1][:, 0] += 0.5 
-
-    new_boxes.append(anns[1])
+    if len(anns[1]) > 0:
+        anns[1][:, 0] += 0.5 
+        new_boxes.append(anns[1])
     
     #Shift y coord of bounding boxes for bottom left by size/2
-    anns[2][:, 1] += 0.5 
-    new_boxes.append(anns[2])
+    if len(anns[2]) > 0:
+        anns[2][:, 1] += 0.5 
+        new_boxes.append(anns[2])
     
     #Shift x and y coord of bounding boxes for bottom right by size/2
-    anns[3][:, 0:2] += 0.5 
-    new_boxes.append(anns[3])
+    if len(anns[3]) > 0:
+        anns[3][:, 0:2] += 0.5 
+        new_boxes.append(anns[3])
 
     combined_imgs = None
 
@@ -569,58 +582,74 @@ def mosaic_augmentation(imgs, anns, size):
     combined_imgs = pad['image']
     new_boxes = np.array(pad['bboxes'])
     
-    ## 4. Randomly choose top left coordinate x, y, both coords within 40 to 60 percent of one image in the mosaic.
+    #There's a chance that the cutout we choose won't contain any boxes.
+    #Select a cutout up to 10 times until we get a cutout with at least one box
+    for attempt in range(10):
+        ## 4. Randomly choose top left coordinate for the cutout
+        x = random.uniform(0.2, 0.3)
+        y = random.uniform(0.2, 0.3)
 
-    #0.2 of combined image is 0.4 of one image
-    x = int(random.uniform(0.2, 0.3) * size)
-    y = int(random.uniform(0.2, 0.3) * size)
+        x_pixel = int(x * 2 * size)
+        y_pixel = int(y * 2 * size)
+        cutout = combined_imgs[y_pixel:y_pixel + size, x_pixel:x_pixel + size, :]
 
-    cutout = combined_imgs[y:y + size, x:x + size, :]
-    
-    ## 5. Remove annotations that are outside the cutout
-    # Note: boxes are in (cx, cy, w, h) format
-    # Convert (cx, cy) to top-left (x1, y1)
-    new_boxes[:, 0] = new_boxes[:, 0] - (new_boxes[:, 2] / 2)  # cx - w/2 -> x1
-    new_boxes[:, 1] = new_boxes[:, 1] - (new_boxes[:, 3] / 2)  # cy - h/2 -> y1
+        ## 5. Remove annotations outside the cutout and adjust remaining boxes
+        new_boxes[:, 0] = new_boxes[:, 0] - (new_boxes[:, 2] / 2)  # cx - w/2 -> x1
+        new_boxes[:, 1] = new_boxes[:, 1] - (new_boxes[:, 3] / 2)  # cy - h/2 -> y1
 
-    # Get intersection between cutout and bounding boxes (x1, y1, x2, y2)
-    xA = np.maximum(new_boxes[:, 0], x)
-    yA = np.maximum(new_boxes[:, 1], y)
-    xB = np.minimum(new_boxes[:, 0] + new_boxes[:, 2], x + size)
-    yB = np.minimum(new_boxes[:, 1] + new_boxes[:, 3], y + size)
+        # Get intersection between cutout and bounding boxes (x1, y1, x2, y2)
+        xA = np.maximum(new_boxes[:, 0], x)
+        yA = np.maximum(new_boxes[:, 1], y)
+        xB = np.minimum(new_boxes[:, 0] + new_boxes[:, 2], x + 0.5)
+        yB = np.minimum(new_boxes[:, 1] + new_boxes[:, 3], y + 0.5)
 
-    # Calculate intersection area
-    intersection_area = np.maximum(0, xB - xA) * np.maximum(0, yB - yA)
+        # Calculate intersection area
+        intersection_area = np.maximum(0, xB - xA) * np.maximum(0, yB - yA)
+        filtered_boxes = new_boxes[intersection_area > 0]
 
-    # Get boxes that have an intersection with the cutout
-    new_boxes = new_boxes[intersection_area > 0]
+        # If we find valid boxes, break out of the loop
+        if filtered_boxes.shape[0] > 0:
+            new_boxes = filtered_boxes
+            break
+
+    if new_boxes.shape[0] == 0:
+        return -1, -1
 
     ## 6. Resize remaining bounding boxes.
     # Adjust the top-left corner and width/height of the boxes that exceed the cutout boundaries
 
     # For boxes whose x coordinate strays beyond the left edge of the cutout
     mask = new_boxes[:, 0] < x
-    new_boxes[mask, 2] -= x - new_boxes[mask, 0]  # Reduce width
+    new_boxes[mask, 2] -= x - new_boxes[:, 0][mask]  # Reduce width
     new_boxes[mask, 0] = x  # Set x to the left edge of the cutout
 
     # For boxes whose y coordinate strays beyond the top edge of the cutout
     mask = new_boxes[:, 1] < y
-    new_boxes[mask, 3] -= y - new_boxes[mask, 1]  # Reduce height
+    new_boxes[mask, 3] -= y - new_boxes[:, 1][mask]  # Reduce height
     new_boxes[mask, 1] = y  # Set y to the top edge of the cutout
 
     # Adjust rest of boxes inside cutout to be relative to the cutout
     new_boxes[:, 0][new_boxes[:, 0] >= x] -= x
     new_boxes[:, 1][new_boxes[:, 1] >= y] -= y
 
-    width_mask = (new_boxes[:, 2] + new_boxes[:, 0]) > size #if x + w > size
-    height_mask = (new_boxes[:, 3] + new_boxes[:, 1]) > size #if y + h > size
-    new_boxes[:, 2][width_mask] = size - new_boxes[:, 0][width_mask] #w = size - x
-    new_boxes[:, 3][height_mask] = size - new_boxes[:, 1][height_mask] #h = size - y
+    width_mask = (new_boxes[:, 2] + new_boxes[:, 0]) > (x + 0.5) #if x + w > right edge
+    height_mask = (new_boxes[:, 3] + new_boxes[:, 1]) > (y + 0.5) #if y + h > bottom edge
+    
+    new_boxes[:, 2][width_mask] = (x + 0.5) - new_boxes[:, 0][width_mask] #w = size - x
+    new_boxes[:, 3][height_mask] = (y + 0.5) - new_boxes[:, 1][height_mask] #h = size - y
 
-    new_boxes = np.insert(new_boxes, 4, 1, axis = 1)
-    plot_image_with_boxes(combined_imgs, new_boxes, class_list = config.TURBINE_LABELS)
-    raise ValueError
-    return cutout, new_boxes 
+    #Up until now, we've been working with a cutout and its boxes that are relative to the entire mosaic
+    #To get the final box coordinates, we double the box coordinates because the cutout is half the size of the entire mosaic
+    #For example, a point with coordinates (0.25, 0.25) for the mosaic has coordinates (0.5, 0.5) for one quadrant of the mosaic
+    #This makes the coordinates relative to the cutout. 
+    new_boxes[:, :4] = new_boxes[:, :4] * 2
+    
+    #Convert back to cx cy w h 
+    new_boxes[:, 0] = new_boxes[:, 0] + (new_boxes[:, 2] / 2)
+    new_boxes[:, 1] = new_boxes[:, 1] + (new_boxes[:, 3] / 2)
+
+    assert cutout.shape == (size, size, 3)
+    return cutout.astype(np.uint8), new_boxes 
 
 def collate_fn(batch):
     """
@@ -662,7 +691,7 @@ def collate_fn(batch):
     batched_targets = [torch.stack(targets) for targets in zip(*batched_targets)]
     return padded_images, batched_targets
 
-def get_loaders(csv_folder_path, batch_size):
+def get_loaders(csv_folder_path, batch_size, train = True):
     """
     Get DataLoader objects for training and testing datasets.
 
@@ -689,6 +718,7 @@ def get_loaders(csv_folder_path, batch_size):
         grid_sizes = config.GRID_SIZES,
         num_classes = config.NUM_TURBINE_CLASSES,
         transform = config.set_train_transforms(image_size = IMAGE_SIZE),
+        mosaic = True,
         multi_scale = True
         )
     
@@ -739,7 +769,10 @@ def get_loaders(csv_folder_path, batch_size):
         pin_memory = config.PIN_MEMORY, 
     )
 
-    return train_loader, val_loader, test_loader
+    if train:
+        return train_loader, val_loader, train_dataset
+    else:
+        return test_loader
    
 def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     """
@@ -762,15 +795,14 @@ def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     
     data_list = []
 
-    has_obj_count = len(common_names)
     negative_count = 0
     for image_name in sorted(image_names):
         if image_name in common_names:
             data_list.append([image_name + '.png', image_name + '.txt'])
-        elif negative_count < has_obj_count:
+        elif negative_count < len(common_names):
             data_list.append([image_name + '.png', None])
             negative_count += 1
-    
+    print(negative_count + len(common_names))
     data_arr = np.array(data_list)
     rng = np.random.default_rng(seed=3407)  
     random_array = rng.integers(len(data_arr), size=len(data_arr))

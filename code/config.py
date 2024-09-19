@@ -8,8 +8,8 @@ import os
 from pathlib import Path
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 64
-NUM_PROCESSES = 4
+BATCH_SIZE = 32
+NUM_PROCESSES = 2
 NUM_WORKERS = int(os.cpu_count()/NUM_PROCESSES) if int(os.cpu_count()/NUM_PROCESSES) <  16 else 16
 NUM_GPUS = torch.cuda.device_count()
 PIN_MEMORY = True
@@ -31,7 +31,7 @@ DARKNET_WEIGHTS = Path(WEIGHTS_FOLDER) / "darknet53.conv.74"
 FREEZE_BACKBONE = True
 DEF_IMAGE_SIZE = 416
 
-WARMUP = False
+WARMUP = True
 DECAY_LR = False
 MULTI_SCALE_TRAIN_SIZES = [
     416, 448, 480, 512, 544, 576, 608
@@ -44,37 +44,44 @@ ANCHORS = [
 ] 
 GRID_SIZES = [DEF_IMAGE_SIZE//32, DEF_IMAGE_SIZE//16, DEF_IMAGE_SIZE//8]
 
-def set_train_transforms(image_size = DEF_IMAGE_SIZE):
-    train_transforms = A.Compose(
-        [
-            A.LongestMaxSize(max_size=int(image_size)), # resize image
-            A.PadIfNeeded(
-                min_height=int(image_size),
-                min_width=int(image_size),
-                border_mode=cv2.BORDER_CONSTANT, 
-                value = 255
-            ),
-            A.ColorJitter(brightness=0.6, contrast=0.6, saturation=0.6, hue=0.6, p=0.4),
-            A.OneOf(    
-                [
-                    A.ShiftScaleRotate(
-                        rotate_limit=20, p=0.5, border_mode=cv2.BORDER_CONSTANT, value = 255
-                    ),
-                    A.Affine(shear=15, mode=0, p=0.5),
-                ],
-                p=1.0,
-            ),
-            A.HorizontalFlip(p=0.5),
-            A.Blur(p=0.1),
-            A.CLAHE(p=0.1),
-            A.Posterize(p=0.1),
-            A.ToGray(p=0.1),
-            A.ChannelShuffle(p=0.05),
-            A.Normalize(mean=[0, 0, 0], std=[1, 1, 1], max_pixel_value=255,),
-            ToTensorV2(),
-        ],
-        bbox_params=A.BboxParams(format="yolo", min_visibility=0.4, label_fields=[], clip = True),
-    )
+def set_train_transforms(image_size = DEF_IMAGE_SIZE, mosaic = True):
+    resize_transforms = [
+        A.LongestMaxSize(max_size=int(image_size)), # resize image
+        A.PadIfNeeded(
+            min_height=int(image_size),
+            min_width=int(image_size),
+            border_mode=cv2.BORDER_CONSTANT, 
+            value = 255
+        )]
+    other_transforms = [
+        A.ColorJitter(brightness=0.6, contrast=0.6, saturation=0.6, hue=0.6, p=0.4),
+        A.OneOf(    
+            [
+                A.ShiftScaleRotate(
+                    rotate_limit=20, p=0.5, border_mode=cv2.BORDER_CONSTANT, value = 255
+                ),
+                A.Affine(shear=15, mode=0, p=0.5),
+            ],
+            p=1.0,
+        ),
+        A.HorizontalFlip(p=0.5),
+        A.CLAHE(p=0.1),
+        A.ToGray(p=0.1),
+        A.ChannelShuffle(p=0.05),
+        A.Normalize(mean=[0, 0, 0], std=[1, 1, 1], max_pixel_value=255,),
+        ToTensorV2(),
+    ]
+    if mosaic:
+        train_transforms = A.Compose(
+        other_transforms, 
+        bbox_params=A.BboxParams(format="yolo", min_visibility=0.4, label_fields=[], clip = True)
+        )
+    else:
+        train_transforms = A.Compose(
+        resize_transforms + other_transforms, 
+        bbox_params=A.BboxParams(format="yolo", min_visibility=0.4, label_fields=[], clip = True)
+        )
+    
     return train_transforms
 
 test_transforms = A.Compose(

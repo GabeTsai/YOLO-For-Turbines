@@ -17,33 +17,26 @@ def test_YOLODataset():
     ] 
     grid_sizes=[13, 26, 52]
 
-    dataset = YOLODataset(
-        "../data/train.csv",
-        "../data/images/",
-        "../data/labels/",
-        anchors=anchors_norm,
-        grid_sizes = grid_sizes,
-        num_classes = 2,
-        transform=None,
-    )
+    train_loader, val_loader, _ = get_loaders(config.CSV_FOLDER, batch_size = 10)
 
     scaled_anchors = torch.tensor(anchors_norm) * (
                     torch.tensor(grid_sizes).unsqueeze(1).unsqueeze(1).repeat(1,3,2)
     )
-    loader = DataLoader(dataset, batch_size=1, shuffle=True)
-
-    for x, y in loader:
+    # seed_everything()
+    for x, y in train_loader:
         boxes = []
         for i in range(y[0].shape[1]): # for each anchor:
             anchor = scaled_anchors[i]
             boxes += cells_to_boxes(y[i], anchors = anchor, grid_size = y[i].shape[2], is_pred = False)[0]
-        boxes = non_max_suppression(boxes, iou_threshold = 0.999, obj_threshold = 0.7, box_format = "midpoint")
-        plot_image_with_boxes(x[0].permute(2,1,0), boxes, class_list = TURBINE_LABELS)
-        
+        boxes = non_max_suppression(boxes, iou_threshold = 0.5, obj_threshold = 0.7, box_format = "midpoint")
+        print(x.shape)
+        # if len(boxes) > 0:
+        #     plot_image_with_boxes(x[0].permute(1,2,0), boxes, class_list = TURBINE_LABELS, image_name = "dataset_ex")
+        #     break
 
 def main():
-    test_create_csv_files()
-    # test_YOLODataset()
+    # test_create_csv_files()
+    test_YOLODataset()
     print("All tests passed.")
 
 if __name__ == "__main__":

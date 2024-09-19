@@ -52,10 +52,10 @@ def test_mosaic():
             boxes = boxes.reshape(1, -1)
         boxes = np.roll(boxes, shift=4, axis=1)  # Albumentations expects [x, y, w, h, class]
         boxes_list.append(boxes.tolist())
-    
-    cutout, boxes = mosaic_augmentation(images, boxes_list, size = 416)
 
-    plot_image_with_boxes(cutout, boxes, class_list = config.TURBINE_LABELS)
+    cutout, new_boxes = mosaic_augmentation(images, boxes_list, size = 416)
+    new_boxes = np.insert(new_boxes, 4, 1, axis = 1)
+    plot_image_with_boxes(cutout, new_boxes, class_list = config.TURBINE_LABELS)
 
 def main():
     # test_iou()
