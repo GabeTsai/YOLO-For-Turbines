@@ -55,24 +55,33 @@ class CNNBlock(nn.Module):
         **kwargs: additional conv layer settings
     
     """
-    def __init__(self, in_channels, out_channels, batch_norm_act = True, **kwargs):
+    def __init__(self, in_channels, out_channels, batch_norm_act = True, activation = 'leaky_relu', **kwargs):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, bias = not batch_norm_act, **kwargs) #using batch norm eliminates need for bias vector
         self.batch_norm = nn.BatchNorm2d(out_channels) if batch_norm_act else None
-        self.leaky_relu = nn.LeakyReLU(0.1) if batch_norm_act else None
+        if batch_norm_act:
+            if activation == 'leaky_relu':
+                self.activation = nn.LeakyReLU(0.1) 
+            elif activation == 'mish':
+                self.activation = nn.Mish()
+            else:
+                raise ValueError(f"Unsupported activation: {activation}")
+        else:
+            self.activation = None
+            
         self.batch_norm_act = batch_norm_act
     
     def set_layers(self, layers):
         self.conv = layers[0]
         if self.batch_norm_act:
             self.batch_norm = layers[1]
-            self.leaky_relu = layers[2]
+            self.activation = layers[2]
 
     def forward(self, x):
         if self.batch_norm_act:
             # print(torch.sum(torch.isnan(self.conv(x))))
             # print(self.batch_norm(self.conv(x)))
-            return self.leaky_relu(self.batch_norm(self.conv(x)))
+            return self.activation(self.batch_norm(self.conv(x)))
         else:
             return self.conv(x) 
         
@@ -87,14 +96,14 @@ class ResidualBlock(nn.Module):
         use_residual: bool, whether to use residual connection
         num_blocks: int, number of residual blocks to stack
     """
-    def __init__(self, in_channels, use_residual = True, num_blocks = 1):
+    def __init__(self, in_channels, activation = 'leaky_relu', use_residual = True, num_blocks = 1):
         super().__init__()
         self.layers = nn.ModuleList()
         for block in range(num_blocks):
             self.layers += [
                 nn.Sequential(
-                    CNNBlock(in_channels, in_channels//2, kernel_size = 1),     #reduce dimensionality
-                    CNNBlock(in_channels//2, in_channels, kernel_size = 3, padding = 1)     #expand feature map 
+                    CNNBlock(in_channels, in_channels//2, activation = activation, kernel_size = 1),     #reduce dimensionality
+                    CNNBlock(in_channels//2, in_channels, activation = activation, kernel_size = 3, padding = 1)     #expand feature map 
                 )   
             ]
         self.use_residual = use_residual
@@ -121,11 +130,11 @@ class ScalePredictionBlock(nn.Module):
         num_classes: int, number of classes to predict
         anchors_per_scale: int, number of anchors per scale
     """
-    def __init__(self, in_channels, num_classes, anchors_per_scale = 3):
+    def __init__(self, in_channels, num_classes, activation = 'leaky_relu', anchors_per_scale = 3):
         super().__init__()
         self.pred_block = nn.Sequential(
-            CNNBlock(in_channels, in_channels * 2, kernel_size = 3, padding = 1),
-            CNNBlock(2 * in_channels, (num_classes + 5) * anchors_per_scale, batch_norm_act = False, kernel_size = 1)
+            CNNBlock(in_channels, in_channels * 2, activation = activation, kernel_size = 3, padding = 1),
+            CNNBlock(2 * in_channels, (num_classes + 5) * anchors_per_scale, activation = activation, batch_norm_act = False, kernel_size = 1)
         )
         self.num_classes = num_classes
         self.anchors_per_scale = anchors_per_scale
@@ -139,10 +148,11 @@ class ScalePredictionBlock(nn.Module):
         return x.permute(0, 1, 3, 4, 2) #(B, 3, scale_dim, scale_dim, num_classes + 5)
 
 class YOLOv3(nn.Module):
-    def __init__(self, in_channels = 3, num_classes = 80, weights_path = None, freeze = False):
+    def __init__(self, in_channels = 3, num_classes = 80, activation = 'leaky_relu', weights_path = None, freeze = False):
         super().__init__()
         self.in_channels = in_channels
         self.num_classes = num_classes
+        self.activation = activation
         self.layers = self._create_model_layers()
         self.param_idx = 0
         self.layer_id = 0
@@ -191,21 +201,21 @@ class YOLOv3(nn.Module):
                 out_channels, kernel_size, stride = block
                 padding = 1 if kernel_size == 3 else 0
                 layers.append(
-                    CNNBlock(in_channels, out_channels, kernel_size = kernel_size, 
+                    CNNBlock(in_channels, out_channels, activation = self.activation, kernel_size = kernel_size, 
                              stride = stride, padding = padding)
                 )
                 in_channels = out_channels
 
             elif isinstance(block, list): #residual blocks do not change feature map dimensions
-                layers.append(ResidualBlock(in_channels, num_blocks = block[1]))
+                layers.append(ResidualBlock(in_channels, activation = self.activation, num_blocks = block[1]))
             
             #Detection head. 5 conv layers, alternating 1x1 and 3x3 
             elif isinstance(block, str): 
                 if block == "S":
                     layers += [
-                        ResidualBlock(in_channels, use_residual = False, num_blocks = 1),
-                        CNNBlock(in_channels, in_channels//2, kernel_size = 1),
-                        ScalePredictionBlock(in_channels//2, num_classes = self.num_classes)
+                        ResidualBlock(in_channels, activation = self.activation, use_residual = False, num_blocks = 1),
+                        CNNBlock(in_channels, in_channels//2, activation = self.activation, kernel_size = 1),
+                        ScalePredictionBlock(in_channels//2, num_classes = self.num_classes, activation = self.activation)
                     ]
                     in_channels = in_channels // 2 
 
@@ -232,7 +242,7 @@ class YOLOv3(nn.Module):
         if block.batch_norm_act:
             loaded_batch_norm = self.load_layer_weights(block.batch_norm)
             loaded_conv = self.load_layer_weights(block.conv)
-            cnn_block_layers += [loaded_conv, loaded_batch_norm, block.leaky_relu]
+            cnn_block_layers += [loaded_conv, loaded_batch_norm, block.activation]
         #just a single conv layer
         else:   
             loaded_conv = self.load_layer_weights(block.conv)

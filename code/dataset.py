@@ -52,10 +52,26 @@ class YOLODataset(Dataset):
     def __len__(self):
         return len(self.annotations)
 
-    def __getitem__(self, idx):
+    def load_image(self, idx):
+        """
+        Helper function to load an image and its corresponding bounding boxes.
+        """
         img_path = Path(f"{self.img_folder}/{self.annotations.iloc[idx, 0]}")
-        img = np.array(Image.open(img_path).convert('RGB')) 
-        label_path = Path(f"{self.annotation_folder}/{self.annotations.iloc[idx, 1]}")
+        img = np.array(Image.open(img_path).convert('RGB'))
+
+        return img
+
+    def load_boxes(self, label_path, idx):
+        
+        boxes = np.loadtxt(label_path, delimiter=" ")
+        if boxes.ndim == 1:
+            boxes = boxes.reshape(1, -1)
+        boxes = np.roll(boxes, shift=4, axis=1)  # Albumentations expects [x, y, w, h, class]
+
+        return boxes.tolist()
+        
+    def __getitem__(self, idx):
+        img = self.load_image(idx)
         #[3, g, g, tx + ty + tw + th + objectness + class] for g in grid_sizes   
         # Initialize targets to zero; assume no object is present in any anchor by default
         targets = [torch.zeros((self.num_anchors // 3, grid_size, grid_size, 6)) for grid_size in self.grid_sizes]
@@ -67,14 +83,26 @@ class YOLODataset(Dataset):
             self.grid_sizes = [self.image_size // 32, self.image_size // 16, self.image_size // 8] 
             self.transform = config.set_train_transforms(self.image_size)
 
+        label_path = Path(f"{self.annotation_folder}/{self.annotations.iloc[idx, 1]}")
         if label_path.exists():
-            boxes = np.loadtxt(label_path, delimiter=" ")
-            if boxes.ndim == 1:
-                boxes = boxes.reshape(1, -1)
-            boxes = np.roll(boxes, shift = 4, axis = 1)   #albumentations expects [x, y, w, h, class]
-            boxes = boxes.tolist()
+            boxes = self.load_boxes(label_path, idx)
             
             if self.transform is not None:
+                #Logic to load in three more images
+                imgs, labels = [], []
+                imgs.append(img)
+                label_paths.append(label_path)
+                for i in range(3):
+                    rand_idx = random.sample(range(len(self.annotations)), 1)
+                    while rand_idx == idx:
+                        rand_idx = random.sample(range(len(self.annotations)), 1)
+                    rand_img = load_image(rand_idx)
+                    rand_boxes = load_boxes(rand_boxes)
+                    imgs.append(rand_img)
+                    labels.append(rand_boxes)
+                #Logic to apply mosaic augmentation 
+                img, boxes = mosaic_augmentation(imgs, labels, self.image_size)
+                
                 augmentations = self.transform(image = img, bboxes = boxes)
                 img = augmentations['image']
                 boxes = augmentations['bboxes']

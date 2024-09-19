@@ -12,6 +12,7 @@ from pathlib import Path
 import cv2
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+import random
 
 import os
 
@@ -384,9 +385,8 @@ def save_checkpoint(model, optimizer, filename = "YOLOv3TurbineCheckpoint.pth.ta
     }
     torch.save(checkpoint, filename)
 
-def load_checkpoint(model, optimizer, lr, filename = "YOLOv3TurbineCheckpoint.pth.tar"):
+def load_checkpoint(model, optimizer, lr, filename = ""):
     """
-    
     Load model and optimizer state from checkpoint file.
     
     Args:
@@ -396,12 +396,14 @@ def load_checkpoint(model, optimizer, lr, filename = "YOLOv3TurbineCheckpoint.pt
         filename: str, name of checkpoint file
     """
 
-    checkpoint = torch.load(filename, map_location = config.DEVICE)
+    checkpoint = torch.load(f"{config.MODEL_FOLDER}/{filename}", map_location = config.DEVICE)
     model.load_state_dict(checkpoint["state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer"])
 
     for param_group in optimizer.param_groups:
         param_group["lr"] = lr
+
+    print(f"Checkpoint loaded from {filename}")
 
 def plot_image_with_boxes(image, boxes, class_list):
     """
@@ -416,32 +418,43 @@ def plot_image_with_boxes(image, boxes, class_list):
     if (len(boxes) == 0):
         print("No objects detected.")
         return
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(image.shape[1] / 100, image.shape[0] / 100))  # Adjusting figure size to match image size in inches
+
+    # Convert image to numpy array if needed
     image = np.array(image)
 
+    # Display the image
     ax.imshow(image)
     
+    # Get image dimensions
     im_h, im_w = image.shape[0], image.shape[1]
     print(im_h, im_w)
+    
+    # Plot bounding boxes
     for box in boxes:
         x, y, w, h, _, class_label = box
-        top_left_x = (box[0] - box[2]/2) * im_w
-        top_left_y = (box[1] - box[3]/2) * im_h
-        box_w = w * im_w
-        box_h = h * im_h
-        rect = patches.Rectangle((top_left_x, top_left_y), box_w, box_h, linewidth = 1, edgecolor = 'r', facecolor = 'none')
+        top_left_x = (x - w / 2) * im_w  # Calculate top-left corner x
+        top_left_y = (y - h / 2) * im_h  # Calculate top-left corner y
+        box_w = w * im_w  # Calculate box width
+        box_h = h * im_h  # Calculate box height
+        
+        # Draw rectangle
+        rect = patches.Rectangle((top_left_x, top_left_y), box_w, box_h, linewidth=1, edgecolor='r', facecolor='none')
         ax.add_patch(rect)
 
+        # Add class label
         class_label = int(class_label)
         class_name = class_list[class_label]
-        plt.text(top_left_x, top_left_y, s = class_name, 
-                 size = 'xx-small',
-                 color = 'white', 
+        plt.text(top_left_x, top_left_y, s=class_name, 
+                 size='xx-small', color='white', 
                  bbox={"color": "red", "pad": 0})
 
     plt.axis('off')
-    plt.show()
+
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+
     plt.savefig("example.png", bbox_inches='tight', pad_inches=0)
+    plt.show()
 
 def plot_original(original_image, resized_image, boxes, class_list):
     o_h, o_w, _ = original_image.shape
@@ -469,7 +482,146 @@ def plot_original(original_image, resized_image, boxes, class_list):
         adjusted_boxes.append([x_center, y_center, width, height, box[4], box[5]])
     # Now plot the boxes on the original image
     plot_image_with_boxes(original_image, adjusted_boxes, class_list)
+
+def mosaic_augmentation(imgs, anns, size):
+    """
+    Implements mosaic augmentation using following algorithm: 
+    1. Resize all four images to squares with side length size. 
+    2. Put the images in a 2x2 grid, each image occupying a corner
+     _ _ _ _ _ _ _ _ _ _ _ _ 
+    |           |           |
+    |           |           |
+    |           |           |
+    |_ _ _ _ _ _| _ _ _ _ _ |
+    |           |           |
+    |           |           |
+    |           |           |
+    |_ _ _ _ _ _|_ _ _ _ _ _|
+    3. Randomly choose a coordinate x, y, both coords within 40 to 60 percent of size.
+     _ _ _ _ _ _ _ _ _ _ _ _ 
+    |      _ _ _|_ _ _ _     |
+    |      *    |      |     |
+    |      |    |      |     |
+    |_ _ _ | _ _| _ _ _| _ _ |
+    |      |    |      |     |
+    |      |_ _ | _ _ _|     |
+    |           |            |
+    |_ _ _ _ _ _|_ _ _ _ _ _ |
+    4. Take a square cutout of with length = size. Top left coords of cutout must be between 40 to 60 percent of top left image.
+    """
+
+    resize_aug = A.Compose([
+        A.LongestMaxSize(max_size = size)
+        ], 
+        bbox_params=A.BboxParams(format="yolo", min_visibility=0.4, label_fields=[], clip = True)
+    )
+
+    pad_aug = A.Compose([
+        A.PadIfNeeded(
+            min_height= 2* size, min_width= 2 * size, border_mode=cv2.BORDER_CONSTANT, value = 255
+        ),
+        ],
+        bbox_params=A.BboxParams(format="yolo", min_visibility=0.4, label_fields=[], clip = True)
+    )
+
+    ## 1. Resize images
+    for i in range(len(imgs)):
+        resize = resize_aug(image = imgs[i], bboxes = anns[i])
+        imgs[i] = resize['image']
+        anns[i] = np.array(resize['bboxes'])
+        anns[i][:, :4] = anns[i][:, :4]/2 
+    h, w, _ = imgs[0].shape
+    ## 2. Combine images, then pad
+    combined_no_padding = np.zeros((2*h, 2*w, 3), dtype = np.int32)
+
+    combined_no_padding[:h, :w, :] = np.array(imgs[0], dtype = np.int32)
+    combined_no_padding[:h, w:, :] = np.array(imgs[1], dtype = np.int32)
+    combined_no_padding[h:, :w, :] = np.array(imgs[2], dtype = np.int32)
+    combined_no_padding[h:, w:, :] = np.array(imgs[3], dtype = np.int32)
     
+    ## 3. Shift bounding boxes to correct positions
+
+    #All boxes for combined image
+    new_boxes = []
+
+    #Bounding boxes for top left image are already correct
+    new_boxes.append(anns[0])
+    
+    #Shift x coord of bounding boxes for top right by size/2
+
+    anns[1][:, 0] += 0.5 
+
+    new_boxes.append(anns[1])
+    
+    #Shift y coord of bounding boxes for bottom left by size/2
+    anns[2][:, 1] += 0.5 
+    new_boxes.append(anns[2])
+    
+    #Shift x and y coord of bounding boxes for bottom right by size/2
+    anns[3][:, 0:2] += 0.5 
+    new_boxes.append(anns[3])
+
+    combined_imgs = None
+
+    new_boxes = np.concatenate(new_boxes)
+
+    pad = pad_aug(image = combined_no_padding, bboxes = new_boxes)
+    combined_imgs = pad['image']
+    new_boxes = np.array(pad['bboxes'])
+    
+    ## 4. Randomly choose top left coordinate x, y, both coords within 40 to 60 percent of one image in the mosaic.
+
+    #0.2 of combined image is 0.4 of one image
+    x = int(random.uniform(0.2, 0.3) * size)
+    y = int(random.uniform(0.2, 0.3) * size)
+
+    cutout = combined_imgs[y:y + size, x:x + size, :]
+    
+    ## 5. Remove annotations that are outside the cutout
+    # Note: boxes are in (cx, cy, w, h) format
+    # Convert (cx, cy) to top-left (x1, y1)
+    new_boxes[:, 0] = new_boxes[:, 0] - (new_boxes[:, 2] / 2)  # cx - w/2 -> x1
+    new_boxes[:, 1] = new_boxes[:, 1] - (new_boxes[:, 3] / 2)  # cy - h/2 -> y1
+
+    # Get intersection between cutout and bounding boxes (x1, y1, x2, y2)
+    xA = np.maximum(new_boxes[:, 0], x)
+    yA = np.maximum(new_boxes[:, 1], y)
+    xB = np.minimum(new_boxes[:, 0] + new_boxes[:, 2], x + size)
+    yB = np.minimum(new_boxes[:, 1] + new_boxes[:, 3], y + size)
+
+    # Calculate intersection area
+    intersection_area = np.maximum(0, xB - xA) * np.maximum(0, yB - yA)
+
+    # Get boxes that have an intersection with the cutout
+    new_boxes = new_boxes[intersection_area > 0]
+
+    ## 6. Resize remaining bounding boxes.
+    # Adjust the top-left corner and width/height of the boxes that exceed the cutout boundaries
+
+    # For boxes whose x coordinate strays beyond the left edge of the cutout
+    mask = new_boxes[:, 0] < x
+    new_boxes[mask, 2] -= x - new_boxes[mask, 0]  # Reduce width
+    new_boxes[mask, 0] = x  # Set x to the left edge of the cutout
+
+    # For boxes whose y coordinate strays beyond the top edge of the cutout
+    mask = new_boxes[:, 1] < y
+    new_boxes[mask, 3] -= y - new_boxes[mask, 1]  # Reduce height
+    new_boxes[mask, 1] = y  # Set y to the top edge of the cutout
+
+    # Adjust rest of boxes inside cutout to be relative to the cutout
+    new_boxes[:, 0][new_boxes[:, 0] >= x] -= x
+    new_boxes[:, 1][new_boxes[:, 1] >= y] -= y
+
+    width_mask = (new_boxes[:, 2] + new_boxes[:, 0]) > size #if x + w > size
+    height_mask = (new_boxes[:, 3] + new_boxes[:, 1]) > size #if y + h > size
+    new_boxes[:, 2][width_mask] = size - new_boxes[:, 0][width_mask] #w = size - x
+    new_boxes[:, 3][height_mask] = size - new_boxes[:, 1][height_mask] #h = size - y
+
+    new_boxes = np.insert(new_boxes, 4, 1, axis = 1)
+    plot_image_with_boxes(combined_imgs, new_boxes, class_list = config.TURBINE_LABELS)
+    raise ValueError
+    return cutout, new_boxes 
+
 def collate_fn(batch):
     """
     Custom collate function to handle different image sizes in a batch.

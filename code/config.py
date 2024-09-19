@@ -13,6 +13,7 @@ NUM_PROCESSES = 4
 NUM_WORKERS = int(os.cpu_count()/NUM_PROCESSES) if int(os.cpu_count()/NUM_PROCESSES) <  16 else 16
 NUM_GPUS = torch.cuda.device_count()
 PIN_MEMORY = True
+LOAD_CHECKPOINT = True
 
 MAP_IOU_THRESHOLD = 0.5
 CONF_THRESHOLD = 0.5
@@ -30,8 +31,10 @@ DARKNET_WEIGHTS = Path(WEIGHTS_FOLDER) / "darknet53.conv.74"
 FREEZE_BACKBONE = True
 DEF_IMAGE_SIZE = 416
 
+WARMUP = False
+DECAY_LR = False
 MULTI_SCALE_TRAIN_SIZES = [
-    320, 352, 384, 416, 448, 480, 512, 544, 576, 608
+    416, 448, 480, 512, 544, 576, 608
 ]
 
 ANCHORS = [
@@ -42,7 +45,6 @@ ANCHORS = [
 GRID_SIZES = [DEF_IMAGE_SIZE//32, DEF_IMAGE_SIZE//16, DEF_IMAGE_SIZE//8]
 
 def set_train_transforms(image_size = DEF_IMAGE_SIZE):
-
     train_transforms = A.Compose(
         [
             A.LongestMaxSize(max_size=int(image_size)), # resize image

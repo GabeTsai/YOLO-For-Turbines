@@ -1,13 +1,15 @@
 import config
 import torch
 from torch.amp import GradScaler
-from torch.optim.lr_scheduler import LinearLR, SequentialLR
+from torch.optim.lr_scheduler import LinearLR, SequentialLR, CosineAnnealingLR
 import ray
 from ray import tune, train
 from ray.tune.schedulers import ASHAScheduler
 from ray.air import session
 import wandb
 wandb.require("core")
+import time  
+
 from pathlib import Path
 import json
 
@@ -23,21 +25,13 @@ from utils import (
     get_loaders,
     seed_everything
 )
+
 import config
 import os
 
 from tqdm import tqdm
 
-def choose_hyperparameter_config():
-    return {
-        "lr": tune.loguniform(7e-4, 2e-3),
-        "weight_decay": 0.0005,
-        "batch_size": 64, 
-        "momentum": tune.uniform(0.9, 0.95),
-        "max_num_steps": 10000
-    }
-
-def train_one_epoch(train_loader, model, optimizer, loss_fn, grad_scaler, scaled_anchors):
+def train_one_epoch(train_loader, model, optimizer, loss_fn, grad_scaler, scaled_anchors, warmup_scheduler):
     loop = tqdm(train_loader, leave=True)
 
     model.train()
@@ -71,6 +65,9 @@ def train_one_epoch(train_loader, model, optimizer, loss_fn, grad_scaler, scaled
         grad_scaler.scale(loss).backward()
         grad_scaler.step(optimizer)
         grad_scaler.update()
+
+        if warmup_scheduler is not None:
+            warmup_scheduler.step()
 
         tot_box_loss += box_loss.item()
         tot_obj_loss += obj_loss.item()
@@ -142,7 +139,7 @@ def val_one_epoch(val_loader, model, loss_fn, scaled_anchors, epoch):
     val_loss = tot_loss / len(val_loader)
 
     mAP = None
-    if (epoch + 1) % 5 == 0:
+    if (epoch + 1) % 10 == 0:
         class_accuracy, noobj_accuracy, obj_accuracy = check_model_accuracy(predictions, targets, object_threshold=config.CONF_THRESHOLD)
         pred_boxes, true_boxes = get_eval_boxes(predictions, targets, 
                                                 iou_threshold=config.NMS_IOU_THRESHOLD,
@@ -159,24 +156,42 @@ def val_one_epoch(val_loader, model, loss_fn, scaled_anchors, epoch):
 
     return val_loss, mAP
 
-def train(hyperparam_config, csv_folder_path, model_folder_path, identifier):
+def train(hyperparam_config, csv_folder_path, model_folder_path, identifier, checkpoint_name = None):
     wandb.init(
       project=f"YOLOv3_Turbine_Detection_{identifier}",
       config = hyperparam_config
       )
 
     wandb.log(hyperparam_config)
-
+    
     model = YOLOv3(num_classes = config.NUM_TURBINE_CLASSES, 
+                    activation = hyperparam_config["activation"],
                     weights_path = Path(config.WEIGHTS_FOLDER) / "darknet53.conv.74", 
                     freeze = config.FREEZE_BACKBONE).to(config.DEVICE,)
-    model.load_weights()
+
     optimizer = torch.optim.SGD(model.parameters(), lr = hyperparam_config["lr"], 
                                 momentum = hyperparam_config["momentum"], weight_decay = hyperparam_config["weight_decay"])
-    # optimizer = torch.optim.AdamW(model.parameters(), lr = hyperparam_config["lr"], weight_decay = hyperparam_config["weight_decay"])
+
+    if config.LOAD_CHECKPOINT:
+        load_checkpoint(model, optimizer, lr = hyperparam_config["lr"], filename = checkpoint_name)
+    else:
+        model.load_weights()
+
     loss_fn = YOLOLoss()
     grad_scaler = torch.amp.GradScaler()
-    # warmup_scheduler = LinearLR(optimizer, start_factor = 1e-6, end_factor = 1, steps = 1000)
+    start_factor = 1e-6
+
+    warmup_scheduler = None
+    decay_scheduler = None
+
+    if config.WARMUP:
+        warmup_scheduler = LinearLR(optimizer, start_factor = start_factor, end_factor = 1, 
+                                    total_iters = hyperparam_config["max_num_steps"] * hyperparam_config["warmup"])
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = param_group['lr'] * start_factor
+
+    # if config.DECAY_LR:
+    #     decay_scheduler = CosineAnnealingLR(optimizer, T_max = hyperparam_config[""])
 
     train_loader, val_loader, _ = get_loaders(csv_folder_path, batch_size = hyperparam_config["batch_size"])
 
@@ -188,11 +203,12 @@ def train(hyperparam_config, csv_folder_path, model_folder_path, identifier):
     epoch = 0
     
     num_epochs = hyperparam_config["max_num_steps"] // len(train_loader)
-    early_stop = int(0.05 * num_epochs)
+    print(num_epochs)
     best_model = None
 
-    while epoch < num_epochs and early_stop != 0:
-        train_loss = train_one_epoch(train_loader, model, optimizer, loss_fn, grad_scaler, scaled_anchors)
+    start_time = time.time()
+    while epoch < num_epochs:
+        train_loss = train_one_epoch(train_loader, model, optimizer, loss_fn, grad_scaler, scaled_anchors, warmup_scheduler)
         
         print(f"Train loss at epoch {epoch}: {train_loss}")
         wandb.log({"train_loss": train_loss})
@@ -201,24 +217,26 @@ def train(hyperparam_config, csv_folder_path, model_folder_path, identifier):
         if mAP is not None and mAP > best_mAP:
             best_mAP = mAP
             best_model = model
-            early_stop = int(0.05 * num_epochs)
-        else:
-            early_stop -= 1
 
         print(f"Val loss at epoch {epoch}: {val_loss}")
         wandb.log({"val_loss": val_loss})
-        wandb.log({"lowest_val_loss": min_val_loss})
 
         epoch += 1
         
-        if (epoch + 1) % (0.25 * num_epochs) == 0:
+        if (epoch + 1) % int(0.25 * num_epochs) == 0:
             save_checkpoint(best_model, optimizer, filename = Path(model_folder_path) / f"best_model_{identifier}.pth")
             wandb.log_model(str(Path(model_folder_path) / f"best_model_{identifier}.pth"), name=f"best_model_{identifier}")
+        
+        elapsed_time = time.time() - start_time
+        wandb.log({"time_elapsed_in_hours": elapsed_time/3600})
+
+    save_checkpoint(best_model, optimizer, filename = Path(model_folder_path) / f"best_model_{identifier}.pth")
+    wandb.log_model(str(Path(model_folder_path) / f"best_model_{identifier}.pth"), name=f"best_model_{identifier}")
+    
     wandb.finish()
 
-def tune_model(csv_folder_path, model_folder_path, identifier):
+def tune_model(csv_folder_path, model_folder_path, hyperparam_config, num_samples, identifier):
     wandb.login()
-    hyperparam_config = choose_hyperparameter_config()
     
     scheduler = ASHAScheduler(
         metric = "mAP", 
@@ -237,7 +255,7 @@ def tune_model(csv_folder_path, model_folder_path, identifier):
         param_space = hyperparam_config,
         tune_config = tune.TuneConfig(
             scheduler = scheduler, 
-            num_samples = 20,
+            num_samples = num_samples,
             max_concurrent_trials= config.NUM_PROCESSES
         ),
         run_config = ray.air.config.RunConfig(
@@ -260,15 +278,25 @@ def tune_model(csv_folder_path, model_folder_path, identifier):
     with open (f'{model_folder_path}/best_config.json', 'w') as f:
         json.dump(best_settings_map, f)
 
+def load_config(model_folder, config_name):
+    with open (f'{model_folder}/{config_name}', 'r') as f:
+        hyperparam_config = json.load(f)
+    return hyperparam_config["config"]
+
 def main():
     seed_everything()
-    # tune_model(config.CSV_FOLDER, config.MODEL_FOLDER, 'LR')
-    hyperparam_config = {"lr": 0.0009137556704163823, 
-                        "weight_decay": 0.0005, 
-                        "batch_size": 64, 
-                        "momentum": 0.9333075350105609, 
-                        "max_num_steps": 10000}
-    train(hyperparam_config, config.CSV_FOLDER, config.MODEL_FOLDER, 'LR')
+    identifier = 'LR'
+    num_samples = 10
+    model_folder = config.MODEL_FOLDER
+    csv_folder = config.CSV_FOLDER
+
+    hyperparam_config = load_config(model_folder, f"best_config_LR.json")
+    hyperparam_config["activation"] = "mish"
+    hyperparam_config["warmup"] = tune.grid_search([0.01 * i for i in range(1, 11)])
+    # tune_model(csv_folder, model_folder, hyperparam_config, num_samples, mode)
+
+    train(hyperparam_config, csv_folder, model_folder, identifier = identifier, checkpoint_name = "best_model_mish.pth")
+
 
 if __name__ == "__main__":
     main()
