@@ -137,7 +137,7 @@ def val_one_epoch(val_loader, model, loss_fn, scaled_anchors, epoch):
     val_loss = tot_loss / len(val_loader)
 
     mAP = None
-    if (epoch + 1) % 5 == 0:
+    if (epoch + 1) % 10 == 0:
         class_accuracy, noobj_accuracy, obj_accuracy = check_model_accuracy(model, val_loader, object_threshold=config.CONF_THRESHOLD)
         pred_boxes, true_boxes = get_eval_boxes(val_loader, model, 
                                                 iou_threshold=config.NMS_IOU_THRESHOLD,
@@ -172,7 +172,7 @@ def train(hyperparam_config, csv_folder_path, model_folder_path, identifier, che
 
     if config.LOAD_CHECKPOINT:
         load_checkpoint(model, optimizer, lr = hyperparam_config["lr"], filename = checkpoint_name)
-    else:
+    elif config.LOAD_WEIGHTS:
         model.load_weights()
 
     loss_fn = YOLOLoss()
@@ -185,6 +185,7 @@ def train(hyperparam_config, csv_folder_path, model_folder_path, identifier, che
     if config.WARMUP:
         warmup_scheduler = LinearLR(optimizer, start_factor = start_factor, end_factor = 1, 
                                     total_iters = hyperparam_config["max_num_steps"] * hyperparam_config["warmup"])
+        warmup_scheduler.step()
     # if config.DECAY_LR:
     #     decay_scheduler = CosineAnnealingLR(optimizer, T_max = hyperparam_config[""])
 
@@ -293,7 +294,7 @@ def main():
     
     # tune_model(csv_folder, model_folder, hyperparam_config, num_samples, identifier, checkpoint_name = "best_model_91824.pth")
 
-    train(hyperparam_config, csv_folder, model_folder, identifier = identifier, checkpoint_name = "best_model_91824.pth")
+    train(hyperparam_config, csv_folder, model_folder, identifier = identifier, checkpoint_name = "best_model_mish_latest.pth")
 
 
 if __name__ == "__main__":

@@ -28,8 +28,9 @@ CSV_FOLDER = f"{PROJ_FOLDER}/data"
 
 COCO_WEIGHTS = Path(f"{WEIGHTS_FOLDER}/yolov3.weights")
 DARKNET_WEIGHTS = Path(WEIGHTS_FOLDER) / "darknet53.conv.74"
-FREEZE_BACKBONE = True
-DEF_IMAGE_SIZE = 416
+LOAD_WEIGHTS = False
+FREEZE_BACKBONE = False
+DEF_IMAGE_SIZE = 480
 
 WARMUP = True
 DECAY_LR = False
@@ -54,20 +55,9 @@ def set_train_transforms(image_size = DEF_IMAGE_SIZE, mosaic = True):
             value = 255
         )]
     other_transforms = [
-        A.ColorJitter(brightness=0.6, contrast=0.6, saturation=0.6, hue=0.6, p=0.4),
-        A.OneOf(    
-            [
-                A.ShiftScaleRotate(
-                    rotate_limit=20, p=0.5, border_mode=cv2.BORDER_CONSTANT, value = 255
-                ),
-                A.Affine(shear=15, mode=0, p=0.5),
-            ],
-            p=1.0,
-        ),
+        A.HueSaturationValue(hue_shift_limit=3, sat_shift_limit=70, val_shift_limit=40, p=0.5),
+        A.ShiftScaleRotate(scale_limit = (0.5, 1.5), rotate_limit=0, p=0.5, border_mode=cv2.BORDER_CONSTANT, value = 255), 
         A.HorizontalFlip(p=0.5),
-        A.CLAHE(p=0.1),
-        A.ToGray(p=0.1),
-        A.ChannelShuffle(p=0.05),
         A.Normalize(mean=[0, 0, 0], std=[1, 1, 1], max_pixel_value=255,),
         ToTensorV2(),
     ]

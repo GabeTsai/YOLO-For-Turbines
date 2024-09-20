@@ -750,7 +750,6 @@ def get_loaders(csv_folder_path, batch_size, train = True):
         shuffle = True,
         num_workers = config.NUM_WORKERS,
         pin_memory = config.PIN_MEMORY,
-        # collate_fn = collate_fn
     )
 
     val_loader = torch.utils.data.DataLoader(
@@ -799,7 +798,7 @@ def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     for image_name in sorted(image_names):
         if image_name in common_names:
             data_list.append([image_name + '.png', image_name + '.txt'])
-        elif negative_count < len(common_names):
+        else:
             data_list.append([image_name + '.png', None])
             negative_count += 1
     print(negative_count + len(common_names))

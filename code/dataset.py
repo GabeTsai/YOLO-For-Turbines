@@ -76,7 +76,7 @@ class YOLODataset(Dataset):
         """
         Applies augmentations to the image and boxes. Handles both mosaic and non-mosaic cases.
         """
-        if self.mosaic and random.uniform(0, 1) > 0.5:
+        if self.mosaic:
             # Load three additional images and their labels for mosaic augmentation
             imgs, labels = [img], [boxes]
             for _ in range(3):
@@ -99,10 +99,12 @@ class YOLODataset(Dataset):
             else:
                 augmentations = self.transform(image=mosaic, bboxes=mosaic_boxes)
 
-        else:
-            # Standard transformation without mosaic
+        #We're still in training mode but just use the default train transforms
+        elif self.multi_scale:
             standard_transform = config.set_train_transforms(self.image_size, mosaic = False)
-            augmentations = standard_transform(image=img, bboxes=boxes)
+        #We must be in test mode. Use the dataset's transform.
+        else:
+            augmentations = self.transform(image=img, bboxes=boxes)
 
         # Return augmented image and boxes
         return augmentations['image'], augmentations['bboxes']

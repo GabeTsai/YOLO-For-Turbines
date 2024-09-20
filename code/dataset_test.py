@@ -23,16 +23,15 @@ def test_YOLODataset():
                     torch.tensor(grid_sizes).unsqueeze(1).unsqueeze(1).repeat(1,3,2)
     )
     # seed_everything()
-    for x, y in train_loader:
+    for x, y in val_loader:
         boxes = []
         for i in range(y[0].shape[1]): # for each anchor:
             anchor = scaled_anchors[i]
             boxes += cells_to_boxes(y[i], anchors = anchor, grid_size = y[i].shape[2], is_pred = False)[0]
-        boxes = non_max_suppression(boxes, iou_threshold = 0.5, obj_threshold = 0.7, box_format = "midpoint")
-        print(x.shape)
-        # if len(boxes) > 0:
-        #     plot_image_with_boxes(x[0].permute(1,2,0), boxes, class_list = TURBINE_LABELS, image_name = "dataset_ex")
-        #     break
+        boxes = non_max_suppression(boxes, iou_threshold = 0.5, obj_threshold = config.CONF_THRESHOLD, box_format = "midpoint")
+        if len(boxes) > 0:
+            plot_image_with_boxes(x[0].permute(1,2,0), boxes, class_list = TURBINE_LABELS, image_name = "dataset_ex")
+            break
 
 def main():
     # test_create_csv_files()
