@@ -108,7 +108,7 @@ def test_YOLOPred():
                     torch.tensor(config.GRID_SIZES).unsqueeze(1).unsqueeze(1).repeat(1,3,2)
     )
     x, y = next(iter(loader))
-    print(x.shape)
+
     with torch.no_grad():
         out = model(x)
         bboxes = [[] for _ in range(x.shape[0])]

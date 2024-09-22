@@ -23,7 +23,7 @@ def test_YOLODataset():
                     torch.tensor(grid_sizes).unsqueeze(1).unsqueeze(1).repeat(1,3,2)
     )
     # seed_everything()
-    for x, y in val_loader:
+    for idx, (x, y) in enumerate(train_loader):
         boxes = []
         for i in range(y[0].shape[1]): # for each anchor:
             anchor = scaled_anchors[i]

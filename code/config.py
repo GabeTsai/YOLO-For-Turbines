@@ -13,7 +13,7 @@ NUM_PROCESSES = 2
 NUM_WORKERS = int(os.cpu_count()/NUM_PROCESSES) if int(os.cpu_count()/NUM_PROCESSES) <  16 else 16
 NUM_GPUS = torch.cuda.device_count()
 PIN_MEMORY = True
-LOAD_CHECKPOINT = True
+LOAD_CHECKPOINT = False
 
 MAP_IOU_THRESHOLD = 0.5
 CONF_THRESHOLD = 0.5
@@ -30,10 +30,13 @@ COCO_WEIGHTS = Path(f"{WEIGHTS_FOLDER}/yolov3.weights")
 DARKNET_WEIGHTS = Path(WEIGHTS_FOLDER) / "darknet53.conv.74"
 LOAD_WEIGHTS = False
 FREEZE_BACKBONE = False
-DEF_IMAGE_SIZE = 480
+MOSAIC = False
+DEF_IMAGE_SIZE = 416
+MIN_BOX_SIZE = 16/DEF_IMAGE_SIZE
 
 WARMUP = True
 DECAY_LR = False
+
 MULTI_SCALE_TRAIN_SIZES = [
     416, 448, 480, 512, 544, 576, 608
 ]
@@ -43,6 +46,12 @@ ANCHORS = [
     [(0.07, 0.15), (0.15, 0.11), (0.14, 0.29)],
     [(0.02, 0.03), (0.04, 0.07), (0.08, 0.06)],
 ] 
+
+TURBINE_ANCHORS = [
+    [(0.215, 0.461), (0.992, 0.349), (0.436, 0.952)],
+    [(0.06, 0.143), (0.143, 0.189), (0.408, 0.181)],
+    [(0.016, 0.0349), (0.0408, 0.0598), (0.110, 0.0777)]
+]
 GRID_SIZES = [DEF_IMAGE_SIZE//32, DEF_IMAGE_SIZE//16, DEF_IMAGE_SIZE//8]
 
 def set_train_transforms(image_size = DEF_IMAGE_SIZE, mosaic = True):
@@ -52,11 +61,11 @@ def set_train_transforms(image_size = DEF_IMAGE_SIZE, mosaic = True):
             min_height=int(image_size),
             min_width=int(image_size),
             border_mode=cv2.BORDER_CONSTANT, 
-            value = 255
+            value = 0
         )]
     other_transforms = [
-        A.HueSaturationValue(hue_shift_limit=3, sat_shift_limit=70, val_shift_limit=40, p=0.5),
-        A.ShiftScaleRotate(scale_limit = (0.5, 1.5), rotate_limit=0, p=0.5, border_mode=cv2.BORDER_CONSTANT, value = 255), 
+        A.HueSaturationValue(hue_shift_limit=2, sat_shift_limit=50, val_shift_limit=40, p=0.5),
+        A.ShiftScaleRotate(scale_limit = (0, 0.5), rotate_limit=0, p=0.5, border_mode=cv2.BORDER_CONSTANT, value = 0), 
         A.HorizontalFlip(p=0.5),
         A.Normalize(mean=[0, 0, 0], std=[1, 1, 1], max_pixel_value=255,),
         ToTensorV2(),
@@ -78,7 +87,7 @@ test_transforms = A.Compose(
     [
         A.LongestMaxSize(max_size=DEF_IMAGE_SIZE),
         A.PadIfNeeded(
-            min_height=DEF_IMAGE_SIZE, min_width=DEF_IMAGE_SIZE, border_mode=cv2.BORDER_CONSTANT, value = 255
+            min_height=DEF_IMAGE_SIZE, min_width=DEF_IMAGE_SIZE, border_mode=cv2.BORDER_CONSTANT, value = 0
         ),
         A.Normalize(mean=[0, 0, 0], std=[1, 1, 1], max_pixel_value=255,),
         ToTensorV2(),
@@ -91,7 +100,7 @@ def set_only_image_transforms(image_size = DEF_IMAGE_SIZE):
         [
             A.LongestMaxSize(max_size = image_size),
             A.PadIfNeeded(
-                min_height= image_size, min_width= image_size, border_mode=cv2.BORDER_CONSTANT, value = 255
+                min_height= image_size, min_width= image_size, border_mode=cv2.BORDER_CONSTANT, value = 0
             ),
             A.Normalize(mean=[0, 0, 0], std=[1, 1, 1], max_pixel_value=255,),
             ToTensorV2(),

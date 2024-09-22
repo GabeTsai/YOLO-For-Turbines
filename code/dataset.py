@@ -64,10 +64,10 @@ class YOLODataset(Dataset):
         return img
 
     def load_boxes(self, label_path, idx):
-        
         boxes = np.loadtxt(label_path, delimiter=" ")
         if boxes.ndim == 1:
             boxes = boxes.reshape(1, -1)
+        
         boxes = np.roll(boxes, shift=4, axis=1)  # Albumentations expects [x, y, w, h, class]
 
         return boxes.tolist()
@@ -102,6 +102,7 @@ class YOLODataset(Dataset):
         #We're still in training mode but just use the default train transforms
         elif self.multi_scale:
             standard_transform = config.set_train_transforms(self.image_size, mosaic = False)
+            augmentations = standard_transform(image = img, bboxes = boxes)
         #We must be in test mode. Use the dataset's transform.
         else:
             augmentations = self.transform(image=img, bboxes=boxes)

@@ -194,8 +194,8 @@ def calc_mAP(pred_boxes, true_boxes, iou_threshold = 0.5, box_format = "center",
     Calculate mean Average Precision (mAP) for object detection.
 
     Args:
-        pred_boxes: list of lists, each list is bounding box in format [id, x, y, w, h, obj, class_label]
-        true_boxes: list of lists, each list is bounding box in format [id, x, y, w, h, obj, class_label]
+        pred_boxes: list of lists, each list is bounding box in format [id, cx, cy, w, h, obj, class_label]
+        true_boxes: list of lists, each list is bounding box in format [id, cx, cy, w, h, obj, class_label]
         iou_threshold: float, IoU threshold for overlapping boxes
 
     Returns:
@@ -450,11 +450,11 @@ def plot_image_with_boxes(image, boxes, class_list, image_name = "example"):
         ax.add_patch(rect)
 
         # Add class label
-        # class_label = int(class_label)
-        # class_name = class_list[class_label]
-        # plt.text(top_left_x, top_left_y, s=class_name, 
-        #          size='xxx-small', color='white', 
-        #          bbox={"color": "red", "pad": 0})
+        class_label = int(class_label)
+        class_name = class_list[class_label]
+        plt.text(top_left_x, top_left_y, s=class_name, 
+                 size='xx-small', color='white', 
+                 bbox={"color": "red", "pad": 0})
 
     plt.axis('off')
 
@@ -691,7 +691,7 @@ def collate_fn(batch):
     batched_targets = [torch.stack(targets) for targets in zip(*batched_targets)]
     return padded_images, batched_targets
 
-def get_loaders(csv_folder_path, batch_size, train = True):
+def get_loaders(csv_folder_path, batch_size, anchors = config.ANCHORS, train = True):
     """
     Get DataLoader objects for training and testing datasets.
 
@@ -718,7 +718,7 @@ def get_loaders(csv_folder_path, batch_size, train = True):
         grid_sizes = config.GRID_SIZES,
         num_classes = config.NUM_TURBINE_CLASSES,
         transform = config.set_train_transforms(image_size = IMAGE_SIZE),
-        mosaic = True,
+        mosaic = config.MOSAIC,
         multi_scale = True
         )
     
@@ -772,7 +772,24 @@ def get_loaders(csv_folder_path, batch_size, train = True):
         return train_loader, val_loader, train_dataset
     else:
         return test_loader
-   
+
+def check_boxes(annotation_folder, name):
+    file_path = Path(f"{annotation_folder}/{name}")
+    file_boxes = np.loadtxt(file_path)
+    
+    # Handle single box case
+    if len(file_boxes.shape) == 1:
+        file_boxes = np.expand_dims(file_boxes, axis=0)
+    
+    file_boxes = file_boxes[:, 1:]
+    
+    # First two columns (center x, y) must be between 0 and 1
+    # Last two columns (width, height) must be greater than 0 and less than or equal to 1
+    valid_x_y = np.logical_and(file_boxes[:, :2] >= 0, file_boxes[:, :2] <= 1)
+    valid_w_h = np.logical_and(file_boxes[:, 2:] > 0, file_boxes[:, 2:] <= 1)
+
+    return np.all(valid_x_y) and np.all(valid_w_h)
+
 def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     """
     Create csv files for training, validation and test datasets.
@@ -796,12 +813,13 @@ def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
 
     negative_count = 0
     for image_name in sorted(image_names):
-        if image_name in common_names:
+        if image_name in common_names and check_boxes(annotation_folder, image_name + '.txt'):
             data_list.append([image_name + '.png', image_name + '.txt'])
-        else:
+        elif negative_count < len(common_names):
             data_list.append([image_name + '.png', None])
             negative_count += 1
-    print(negative_count + len(common_names))
+
+    print(len(data_list))
     data_arr = np.array(data_list)
     rng = np.random.default_rng(seed=3407)  
     random_array = rng.integers(len(data_arr), size=len(data_arr))
@@ -811,9 +829,10 @@ def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     for split in split_map:
         end_idx = start_idx + int(split_map[split] * len(data_arr))
         split_data = data_arr[start_idx:end_idx]
+        print(split_data.shape)
         np.savetxt(Path(f"{split_folder}/{split}.csv"), split_data, fmt = "%s", delimiter = ",")
 
-def seed_everything(seed = 3407):
+def seed_everything(seed = 424242):
     """
     Seed all random number generators.
     

@@ -39,6 +39,8 @@ def train_one_epoch(train_dataset, train_loader, model, optimizer, loss_fn, grad
     tot_loss = 0
 
     for batch_idx, (x, y) in enumerate(loop):
+        optimizer.zero_grad()
+
         x = x.to(config.DEVICE)
         if (batch_idx + 1) % 10 == 0:  # Use batch_idx directly
             train_dataset.change_scale()
@@ -62,7 +64,6 @@ def train_one_epoch(train_dataset, train_loader, model, optimizer, loss_fn, grad
 
             loss = box_loss + obj_loss + no_obj_loss + class_loss
 
-        optimizer.zero_grad()
         grad_scaler.scale(loss).backward()
         grad_scaler.step(optimizer)
         grad_scaler.update()
@@ -141,7 +142,7 @@ def val_one_epoch(val_loader, model, loss_fn, scaled_anchors, epoch):
         class_accuracy, noobj_accuracy, obj_accuracy = check_model_accuracy(model, val_loader, object_threshold=config.CONF_THRESHOLD)
         pred_boxes, true_boxes = get_eval_boxes(val_loader, model, 
                                                 iou_threshold=config.NMS_IOU_THRESHOLD,
-                                                anchors=config.ANCHORS, 
+                                                anchors=config.TURBINE_ANCHORS, 
                                                 obj_threshold=config.CONF_THRESHOLD)
         mAP = calc_mAP(pred_boxes, true_boxes, iou_threshold=config.MAP_IOU_THRESHOLD, 
                        num_classes=config.NUM_TURBINE_CLASSES).item()
@@ -154,7 +155,7 @@ def val_one_epoch(val_loader, model, loss_fn, scaled_anchors, epoch):
 
     return val_loss, mAP
 
-def train(hyperparam_config, csv_folder_path, model_folder_path, identifier, checkpoint_name = None):
+def train(hyperparam_config, csv_folder_path, model_folder_path, identifier, early_stop, checkpoint_name = None):
     wandb.init(
       project=f"YOLOv3_Turbine_Detection_{identifier}",
       config = hyperparam_config
@@ -189,9 +190,9 @@ def train(hyperparam_config, csv_folder_path, model_folder_path, identifier, che
     # if config.DECAY_LR:
     #     decay_scheduler = CosineAnnealingLR(optimizer, T_max = hyperparam_config[""])
 
-    train_loader, val_loader, train_dataset = get_loaders(csv_folder_path, batch_size = hyperparam_config["batch_size"], train = True)
+    train_loader, val_loader, train_dataset = get_loaders(csv_folder_path, batch_size = hyperparam_config["batch_size"], anchors = config.TURBINE_ANCHORS, train = True)
 
-    scaled_anchors = (torch.tensor(config.ANCHORS) 
+    scaled_anchors = (torch.tensor(config.TURBINE_ANCHORS) 
                       * torch.tensor(config.GRID_SIZES).unsqueeze(1).unsqueeze(1).repeat(1,3,2)
     ).to(config.DEVICE)
 
@@ -203,16 +204,22 @@ def train(hyperparam_config, csv_folder_path, model_folder_path, identifier, che
     best_model = None
 
     start_time = time.time()
-    while epoch < num_epochs:
+    early_stop_limit = early_stop
+
+    while epoch < num_epochs and early_stop > 0:
         train_loss = train_one_epoch(train_dataset, train_loader, model, optimizer, loss_fn, grad_scaler, scaled_anchors, warmup_scheduler)
         
         print(f"Train loss at epoch {epoch}: {train_loss}")
         wandb.log({"train_loss": train_loss})
 
         val_loss, mAP = val_one_epoch(val_loader, model, loss_fn, scaled_anchors, epoch)
-        if mAP is not None and mAP > best_mAP:
-            best_mAP = mAP
-            best_model = model
+        if mAP is not None:
+            if mAP > best_mAP:
+                best_mAP = mAP
+                best_model = model
+                early_stop = early_stop_limit 
+            elif mAP < best_mAP:
+                early_stop -= 1
 
         print(f"Val loss at epoch {epoch}: {val_loss}")
         wandb.log({"val_loss": val_loss})
@@ -231,13 +238,13 @@ def train(hyperparam_config, csv_folder_path, model_folder_path, identifier, che
     
     wandb.finish()
 
-def tune_model(csv_folder_path, model_folder_path, hyperparam_config, num_samples, identifier, checkpoint_name):
+def tune_model(csv_folder_path, model_folder_path, hyperparam_config, num_samples, identifier, early_stop = 5, checkpoint_name = None):
     wandb.login()
     
     scheduler = ASHAScheduler(
         metric = "mAP", 
         mode = "max", 
-        grace_period = 5,
+        grace_period = 2,
         brackets = 2, 
         reduction_factor = 2
     )
@@ -246,6 +253,7 @@ def tune_model(csv_folder_path, model_folder_path, hyperparam_config, num_sample
         tune.with_resources(
             tune.with_parameters(train, csv_folder_path = csv_folder_path,
                             model_folder_path = model_folder_path, identifier = identifier,
+                            early_stop = early_stop, 
                             checkpoint_name = checkpoint_name),
             resources = {"cpu": config.NUM_WORKERS, "gpu": config.NUM_GPUS/config.NUM_PROCESSES}
         ),
@@ -282,19 +290,19 @@ def load_config(model_folder, config_name):
 
 def main():
     seed_everything()
-    identifier = 'MOSAIC'
-    num_samples = 20
+    identifier = 'LR'
+    num_samples = 10
     model_folder = config.MODEL_FOLDER
     csv_folder = config.CSV_FOLDER
 
-    hyperparam_config = load_config(model_folder, f"best_config_LR.json")
+    hyperparam_config = load_config(model_folder, f"best_config_92024.json")
     hyperparam_config["activation"] = "mish"
     # hyperparam_config["warmup"] = tune.grid_search([0.01 * i for i in range(1, 11)])
-    hyperparam_config["warmup"] = 0.05
+    hyperparam_config["warmup"] = 0.01
     
-    # tune_model(csv_folder, model_folder, hyperparam_config, num_samples, identifier, checkpoint_name = "best_model_91824.pth")
+    # tune_model(csv_folder, model_folder, hyperparam_config, num_samples, identifier, early_stop = 100)
 
-    train(hyperparam_config, csv_folder, model_folder, identifier = identifier, checkpoint_name = "best_model_mish_latest.pth")
+    train(hyperparam_config, csv_folder, model_folder, identifier = identifier, early_stop = 100, checkpoint_name = "" )
 
 
 if __name__ == "__main__":
