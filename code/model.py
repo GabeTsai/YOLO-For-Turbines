@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import config
 
 """
 C. @aladdinpersson
@@ -16,7 +17,7 @@ List is structured by "B" indicating a residual block followed by the number of 
 
 """
 
-config = [
+layer_config = [
     (32, 3, 1),
     (64, 3, 2),
     ["B", 1], #each residual block downsamples the feature map then upsamples it by a factor of 2
@@ -54,30 +55,35 @@ class CNNBlock(nn.Module):
         **kwargs: additional conv layer settings
     
     """
-    def __init__(self, in_channels, out_channels, batch_norm_act = True, **kwargs):
+    def __init__(self, in_channels, out_channels, batch_norm_act = True, activation = 'leaky_relu', **kwargs):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, bias = not batch_norm_act, **kwargs) #using batch norm eliminates need for bias vector
         self.batch_norm = nn.BatchNorm2d(out_channels) if batch_norm_act else None
         self.leaky_relu = nn.LeakyReLU(0.1) if batch_norm_act else None
         self.batch_norm = nn.BatchNorm2d(out_channels) if batch_norm_act else None
-        self.leaky_relu = nn.LeakyReLU(0.1) if batch_norm_act else None
+        if batch_norm_act:
+            if activation == 'leaky_relu':
+                self.activation = nn.LeakyReLU(0.1) 
+            elif activation == 'mish':
+                self.activation = nn.Mish()
+            else:
+                raise ValueError(f"Unsupported activation: {activation}")
+        else:
+            self.activation = None
+            
         self.batch_norm_act = batch_norm_act
     
     def set_layers(self, layers):
         self.conv = layers[0]
         if self.batch_norm_act:
             self.batch_norm = layers[1]
-            self.leaky_relu = layers[2]
+            self.activation = layers[2]
 
     def forward(self, x):
         if self.batch_norm_act:
-            print(self.conv.weight.data)
-            print(torch.mean(self.conv(x)))
-            print(f"Conv output min: {self.conv(x).min()}, max: {self.conv(x).max()}")
-            print("Batch norm running mean: ", self.batch_norm.running_mean)
-            print("Batch norm running var: ", self.batch_norm.running_var)
-            print(self.batch_norm(self.conv(x)))
-            return self.leaky_relu(self.batch_norm(self.conv(x)))
+            # print(torch.sum(torch.isnan(self.conv(x))))
+            # print(self.batch_norm(self.conv(x)))
+            return self.activation(self.batch_norm(self.conv(x)))
         else:
             return self.conv(x) 
         
@@ -92,14 +98,14 @@ class ResidualBlock(nn.Module):
         use_residual: bool, whether to use residual connection
         num_blocks: int, number of residual blocks to stack
     """
-    def __init__(self, in_channels, use_residual = True, num_blocks = 1):
+    def __init__(self, in_channels, activation = 'leaky_relu', use_residual = True, num_blocks = 1):
         super().__init__()
         self.layers = nn.ModuleList()
         for block in range(num_blocks):
             self.layers += [
                 nn.Sequential(
-                    CNNBlock(in_channels, in_channels//2, kernel_size = 1),     #reduce dimensionality
-                    CNNBlock(in_channels//2, in_channels, kernel_size = 3, padding = 1)     #expand feature map 
+                    CNNBlock(in_channels, in_channels//2, activation = activation, kernel_size = 1),     #reduce dimensionality
+                    CNNBlock(in_channels//2, in_channels, activation = activation, kernel_size = 3, padding = 1)     #expand feature map 
                 )   
             ]
         self.use_residual = use_residual
@@ -126,11 +132,11 @@ class ScalePredictionBlock(nn.Module):
         num_classes: int, number of classes to predict
         anchors_per_scale: int, number of anchors per scale
     """
-    def __init__(self, in_channels, num_classes, anchors_per_scale = 3):
+    def __init__(self, in_channels, num_classes, activation = 'leaky_relu', anchors_per_scale = 3):
         super().__init__()
         self.pred_block = nn.Sequential(
-            CNNBlock(in_channels, in_channels * 2, kernel_size = 3, padding = 1),
-            CNNBlock(2 * in_channels, (num_classes + 5) * anchors_per_scale, batch_norm_act = False, kernel_size = 1)
+            CNNBlock(in_channels, in_channels * 2, activation = activation, kernel_size = 3, padding = 1),
+            CNNBlock(2 * in_channels, (num_classes + 5) * anchors_per_scale, activation = activation, batch_norm_act = False, kernel_size = 1)
         )
         self.num_classes = num_classes
         self.anchors_per_scale = anchors_per_scale
@@ -144,14 +150,16 @@ class ScalePredictionBlock(nn.Module):
         return x.permute(0, 1, 3, 4, 2) #(B, 3, scale_dim, scale_dim, num_classes + 5)
 
 class YOLOv3(nn.Module):
-    def __init__(self, in_channels = 3, num_classes = 80, weights_path = None):
+    def __init__(self, in_channels = 3, num_classes = 80, activation = 'leaky_relu', weights_path = None, freeze = False):
         super().__init__()
         self.in_channels = in_channels
         self.num_classes = num_classes
+        self.activation = activation
         self.layers = self._create_model_layers()
         self.param_idx = 0
         self.layer_id = 0
         self.weights_path = None
+        self.freeze = freeze
 
         if weights_path:
             self.weights_path = weights_path
@@ -160,8 +168,8 @@ class YOLOv3(nn.Module):
                 self.weights = np.fromfile(f, dtype = np.float32)
             self.cutoff = None
             file_name = os.path.basename(weights_path)
-            if '.conv' in weights_path:
-                self.cutoff = int(file_name.split('.')[-1])
+            if '.conv' in file_name:
+                self.cutoff = int(file_name.split('.')[-1]) 
 
     def forward(self, x):
         predictions = []
@@ -173,9 +181,10 @@ class YOLOv3(nn.Module):
                 continue
 
             x = layer(x)
+            
             if torch.sum(torch.isnan(x)) > 0:
-                print(layer)
-                raise ValueError("NaN in forward pass")
+                raise ValueError("Nan in layer")
+            
             if isinstance(layer, ResidualBlock) and layer.num_blocks == 8:
                 route_to_detection_head.append(x)
             
@@ -188,26 +197,26 @@ class YOLOv3(nn.Module):
     def _create_model_layers(self):
         layers = nn.ModuleList()
         in_channels = self.in_channels
-        for block in config:
+        for block in layer_config:
             if isinstance(block, tuple):
                 out_channels, kernel_size, stride = block
                 padding = 1 if kernel_size == 3 else 0
                 layers.append(
-                    CNNBlock(in_channels, out_channels, kernel_size = kernel_size, 
+                    CNNBlock(in_channels, out_channels, activation = self.activation, kernel_size = kernel_size, 
                              stride = stride, padding = padding)
                 )
                 in_channels = out_channels
 
             elif isinstance(block, list): #residual blocks do not change feature map dimensions
-                layers.append(ResidualBlock(in_channels, num_blocks = block[1]))
+                layers.append(ResidualBlock(in_channels, activation = self.activation, num_blocks = block[1]))
             
             #Detection head. 5 conv layers, alternating 1x1 and 3x3 
             elif isinstance(block, str): 
                 if block == "S":
                     layers += [
-                        ResidualBlock(in_channels, use_residual = False, num_blocks = 1),
-                        CNNBlock(in_channels, in_channels//2, kernel_size = 1),
-                        ScalePredictionBlock(in_channels//2, num_classes = self.num_classes)
+                        ResidualBlock(in_channels, activation = self.activation, use_residual = False, num_blocks = 1),
+                        CNNBlock(in_channels, in_channels//2, activation = self.activation, kernel_size = 1),
+                        ScalePredictionBlock(in_channels//2, num_classes = self.num_classes, activation = self.activation)
                     ]
                     in_channels = in_channels // 2 
 
@@ -215,8 +224,8 @@ class YOLOv3(nn.Module):
                     layers.append(nn.Upsample(scale_factor = 2))
                     in_channels = in_channels * 3   #since we concatenate with a feature map with twice the number of channels
 
-        return layers
-    
+        return layers        
+
     def load_weights(self):        
         for i, block in enumerate(self.layers):
             if isinstance(block, CNNBlock):
@@ -226,16 +235,19 @@ class YOLOv3(nn.Module):
                 self.layers[i] = self.load_block_weights(block)
             else:
                 self.layers[i] = self.load_layer_weights(block)
-        print(self.param_idx)
         print(f"Weights from {self.weights_path} loaded successfully.")
     
     def load_CNNBlock(self, block):
         loaded_block = block
         cnn_block_layers = []
-        for layer in block.children():
-            if layer is not None:
-                loaded_layer = self.load_layer_weights(layer)
-                cnn_block_layers.append(loaded_layer)
+        if block.batch_norm_act:
+            loaded_batch_norm = self.load_layer_weights(block.batch_norm)
+            loaded_conv = self.load_layer_weights(block.conv)
+            cnn_block_layers += [loaded_conv, loaded_batch_norm, block.activation]
+        #just a single conv layer
+        else:   
+            loaded_conv = self.load_layer_weights(block.conv)
+            cnn_block_layers.append(loaded_conv)
         loaded_block.set_layers(cnn_block_layers)
         return loaded_block
     
@@ -261,22 +273,42 @@ class YOLOv3(nn.Module):
         return loaded_block
     
     def load_layer_weights(self, layer):
-        if self.layer_id == self.cutoff:
-            return layer
         weights = self.weights
+
+        #if we have reached the cutoff layer, return the layer without loading weights
+        if self.cutoff is not None and self.layer_id >= self.cutoff:
+            if isinstance(layer, nn.Conv2d):
+                if layer.bias is not None: #if bias exists
+                    num_bias = layer.bias.numel()
+                    self.param_idx += num_bias
+
+                num_weights = layer.weight.numel()
+                self.param_idx += num_weights
+
+            elif isinstance(layer, nn.BatchNorm2d):
+                num_bn_params = layer.bias.numel()
+                self.param_idx += num_bn_params * 4  # beta, gamma, running_mean, running_var
+
+            self.layer_id += 1
+            return layer
+        
         if isinstance(layer, nn.Conv2d):
             if layer.bias is not None: #if bias exists
                 num_bias = layer.bias.numel()
                 conv_biases = torch.from_numpy(weights[self.param_idx:self.param_idx + num_bias]).float()
-                conv_biases = conv_biases.view_as(layer.bias.data)
+                conv_biases = conv_biases.view_as(layer.bias)
                 self.param_idx += num_bias
                 layer.bias.data.copy_(conv_biases)
 
             num_weights = layer.weight.numel()
             conv_weights = torch.from_numpy(weights[self.param_idx:self.param_idx + num_weights]).float()
             self.param_idx += num_weights
-            conv_weights = conv_weights.view_as(layer.weight.data)
+            conv_weights = conv_weights.view_as(layer.weight)
             layer.weight.data.copy_(conv_weights)
+            if self.freeze:
+                if layer.bias is not None:
+                    layer.bias.requires_grad = False
+                layer.weight.requires_grad = False
 
         elif isinstance(layer, nn.BatchNorm2d):
             num_bn_params = layer.bias.numel()
@@ -297,14 +329,21 @@ class YOLOv3(nn.Module):
             layer.running_var.data.copy_(bn_running_var.view_as(layer.running_var))
             self.param_idx += num_bn_params
 
+            if self.freeze:
+                layer.bias.requires_grad = False
+                layer.weight.requires_grad = False
+                layer.running_mean.requires_grad = False
+                layer.running_var.requires_grad = False
+
         self.layer_id += 1
         return layer
 
 if __name__ == "__main__":
     num_classes = 80
     IMAGE_SIZE = 416
-    model = YOLOv3(num_classes=num_classes)
-    
+    model = YOLOv3(weights_path = config.DARKNET_WEIGHTS, freeze = True)
+    model.load_weights()
+
     print(sum(p.numel() for p in model.parameters()))
 
     x = torch.randn((2, 3, IMAGE_SIZE, IMAGE_SIZE))
