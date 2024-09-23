@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import os
 
+import config
+
 def iou_aligned(box1, box2):
     """
     Calculate IoU between two boxes. Assumes boxes are aligned at center.
@@ -87,7 +89,7 @@ def cells_to_boxes(predictions, anchors, grid_size, is_pred = True):
         best_class = torch.argmax(predictions[..., 5:], dim = -1).unsqueeze(-1)
     
     else:
-        object_scores = predictions[..., 0:1]
+        object_scores = predictions[..., 4:5]
         best_class = predictions[..., 5:]
 
     #We create grid cell indices to adjust box coordinates to be relative to entire image
@@ -97,7 +99,7 @@ def cells_to_boxes(predictions, anchors, grid_size, is_pred = True):
         .unsqueeze(-1)  #(B, 3, grid_size, grid_size, 1)
         .to(predictions.device)
     )
-    cx = 1 / grid_size * (box_predictions[..., 1:2] + grid_cell_indices)
+    cx = 1 / grid_size * (box_predictions[..., 0:1] + grid_cell_indices)
 
     #With permute (0, 1, 3, 2, 4), 
     #We effectively transpose the grid indices, or dimensions 2 and 3
@@ -119,6 +121,7 @@ def cells_to_boxes(predictions, anchors, grid_size, is_pred = True):
     converted_boxes = torch.cat((cx, cy, w_h, object_scores, best_class), dim = -1)
     #(B, 3, S, S, 6) --> #(B, 3*S*S, 6)
     converted_boxes = converted_boxes.reshape(batch_size, num_anchors * grid_size * grid_size, 6)
+    
     return converted_boxes.tolist()
 
 def non_max_suppression(boxes, iou_threshold, obj_threshold, box_format = "corners"):
@@ -142,13 +145,15 @@ def non_max_suppression(boxes, iou_threshold, obj_threshold, box_format = "corne
 
     while filtered_boxes:
         largest_score_box = filtered_boxes.pop(0)
-        nms_boxes.append(largest_score_box)
+
         filtered_boxes = [
             box for box in filtered_boxes
-            if box[4] != largest_score_box[4]
+            if int(box[5]) != int(largest_score_box[5]) #keep boxes with different class labels
             or calc_iou(torch.tensor(largest_score_box[:4]), torch.tensor(box[:4]), 
-                   box_format = box_format) < iou_threshold
+                   box_format = box_format).item() < iou_threshold
         ]
+        
+        nms_boxes.append(largest_score_box)
 
     return nms_boxes
 
@@ -250,7 +255,7 @@ def plot_image_with_boxes(image, boxes, class_list):
         return
     fig, ax = plt.subplots()
     image = np.array(image)
-    print(image.shape)
+
     ax.imshow(image)
     im_h, im_w = image.shape[0], image.shape[1]
     
@@ -262,8 +267,25 @@ def plot_image_with_boxes(image, boxes, class_list):
         box_h = h * im_h
         rect = patches.Rectangle((top_left_x, top_left_y), box_w, box_h, linewidth = 1, edgecolor = 'r', facecolor = 'none')
         ax.add_patch(rect)
+
     plt.show()
 
+def get_loaders(train_csv_path, test_csv_path):
+    """
+    Get DataLoader objects for training and testing datasets.
+
+    Args:
+        train_csv_path: str, path to csv file with training data
+        test_csv_path: str, path to csv file with test data
+
+    Returns:
+        DataLoader objects for training and testing datasets
+    """
+    from dataset import YOLODataset
+
+    train_dataset = YOLODataset(train_csv_path, transform = None)
+    test_dataset = YOLODataset(test_csv_path, transform = None)
+   
 def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     """
     Create csv files for training, validation and test datasets.
@@ -271,7 +293,6 @@ def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     Args:
         image_folder: str, path to folder with images
         annotation_folder: str, path to folder with txt files containing annotations
-        split_folder: str, path to folder where csv files will be saved
         split_map: dict, keys specify split, values specify percentage
     """
     images = np.array(os.listdir(image_folder))
@@ -283,7 +304,7 @@ def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     assert(len(images) == len(image_names))
 
     common_names = image_names.intersection(label_names)
-
+    
     data_list = []
 
     for image_name in sorted(image_names):

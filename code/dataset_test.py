@@ -19,9 +19,9 @@ def test_YOLODataset():
     grid_sizes=[13, 26, 52]
 
     dataset = YOLODataset(
-        "data/train.csv",
-        "data/images/",
-        "data/labels/",
+        "../data/train.csv",
+        "../data/images/",
+        "../data/labels/",
         anchors=anchors_norm,
         grid_sizes = grid_sizes,
         num_classes = 2,
@@ -38,14 +38,13 @@ def test_YOLODataset():
         for i in range(y[0].shape[1]): # for each anchor:
             anchor = scaled_anchors[i]
             boxes += cells_to_boxes(y[i], anchors = anchor, grid_size = y[i].shape[2], is_pred = False)[0]
-        boxes = non_max_suppression(boxes, iou_threshold = 1, obj_threshold = 0.7, box_format = "midpoint")
-        print(boxes)
+        boxes = non_max_suppression(boxes, iou_threshold = 0.999, obj_threshold = 0.7, box_format = "midpoint")
         plot_image_with_boxes(x[0].permute(2,1,0), boxes, class_list = CLASSES)
         
 
 def main():
-    # test_create_csv_files()
-    test_YOLODataset()
+    test_create_csv_files()
+    # test_YOLODataset()
     print("All tests passed.")
 
 if __name__ == "__main__":
