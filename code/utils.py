@@ -11,6 +11,7 @@ from pathlib import Path
 
 import cv2
 import albumentations as A
+from PIL import Image
 from albumentations.pytorch import ToTensorV2
 import random
 
@@ -426,12 +427,12 @@ def plot_image_with_boxes(image, boxes, class_list, image_name = "example"):
     
     if (len(boxes) == 0):
         print("No objects detected.")
-        return
+        return image
     fig, ax = plt.subplots(figsize=(image.shape[1] / 100, image.shape[0] / 100))  # Adjusting figure size to match image size in inches
 
     # Convert image to numpy array if needed
     image = np.array(image)
-
+    
     # Display the image
     ax.imshow(image)
     
@@ -459,9 +460,16 @@ def plot_image_with_boxes(image, boxes, class_list, image_name = "example"):
     plt.axis('off')
 
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
-
+    
     plt.savefig(f"{image_name}.png", bbox_inches='tight', pad_inches=0)
     plt.show()
+
+    fig.canvas.draw()
+    img_pil = Image.fromarray(np.array(fig.canvas.renderer.buffer_rgba()))
+
+    plt.close(fig)  # Close the figure to prevent display
+
+    return img_pil  
 
 def plot_original(original_image, resized_image, boxes, class_list):
     o_h, o_w, _ = original_image.shape
@@ -712,7 +720,7 @@ def get_loaders(csv_folder_path, batch_size, anchors = config.ANCHORS, train = T
     train_dataset = YOLODataset(csv_split_file = train_csv_path, 
         img_folder = config.IMAGE_FOLDER,
         annotation_folder = config.ANNOTATION_FOLDER,
-        anchors = config.ANCHORS,
+        anchors = anchors,
         batch_size = batch_size,
         image_size = IMAGE_SIZE,
         grid_sizes = config.GRID_SIZES,
@@ -725,7 +733,7 @@ def get_loaders(csv_folder_path, batch_size, anchors = config.ANCHORS, train = T
     val_dataset = YOLODataset(csv_split_file = val_csv_path,
         img_folder = config.IMAGE_FOLDER,
         annotation_folder = config.ANNOTATION_FOLDER,
-        anchors = config.ANCHORS,
+        anchors = anchors,
         batch_size = batch_size,
         image_size = IMAGE_SIZE,
         grid_sizes = config.GRID_SIZES,
@@ -736,7 +744,7 @@ def get_loaders(csv_folder_path, batch_size, anchors = config.ANCHORS, train = T
     test_dataset = YOLODataset(csv_split_file = test_csv_path,
         img_folder = config.IMAGE_FOLDER,
         annotation_folder = config.ANNOTATION_FOLDER,
-        anchors = config.ANCHORS,
+        anchors = anchors,
         batch_size = batch_size,
         image_size = IMAGE_SIZE,
         grid_sizes = config.GRID_SIZES,
