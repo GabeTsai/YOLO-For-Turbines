@@ -59,6 +59,8 @@ class CNNBlock(nn.Module):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, bias = not batch_norm_act, **kwargs) #using batch norm eliminates need for bias vector
         self.batch_norm = nn.BatchNorm2d(out_channels) if batch_norm_act else None
+        self.leaky_relu = nn.LeakyReLU(0.1) if batch_norm_act else None
+        self.batch_norm = nn.BatchNorm2d(out_channels) if batch_norm_act else None
         if batch_norm_act:
             if activation == 'leaky_relu':
                 self.activation = nn.LeakyReLU(0.1) 
