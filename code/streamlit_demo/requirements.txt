@@ -1,9 +1,0 @@
-numpy
-pandas
-streamlit
-matplotlib
-albumentations
-opencv-python
-tqdm
-pathlib
-torch == 2.4.0
