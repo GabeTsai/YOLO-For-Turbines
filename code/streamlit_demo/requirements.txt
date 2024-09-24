@@ -1,4 +1,9 @@
-torch
+torch == 2.4.0
 numpy
 pandas
 streamlit
+matplotlib
+albumentations
+opencv-python
+tqdm
+pathlib
