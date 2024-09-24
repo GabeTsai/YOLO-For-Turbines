@@ -19,7 +19,7 @@ MAP_IOU_THRESHOLD = 0.5
 CONF_THRESHOLD = 0.5
 NMS_IOU_THRESHOLD = 0.45
 
-PROJ_FOLDER = "/home/groups/yzwang/gabriel_files/YOLO-For-Turbines"
+PROJ_FOLDER = "/Users/HP/Documents/GitHub/YOLO-For-Turbines"
 IMAGE_FOLDER = f"{PROJ_FOLDER}/data/images"
 ANNOTATION_FOLDER = f"{PROJ_FOLDER}/data/labels"
 WEIGHTS_FOLDER = f"{PROJ_FOLDER}/weights"

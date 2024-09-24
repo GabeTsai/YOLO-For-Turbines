@@ -415,7 +415,7 @@ def load_checkpoint(model, optimizer, lr, filename = ""):
 
     print(f"Checkpoint loaded from {filename}")
 
-def plot_image_with_boxes(image, boxes, class_list, image_name = "example"):
+def plot_image_with_boxes(image, boxes, class_list, image_name = "example", savefig = False):
     """
     Plot image with bounding boxes.
 
@@ -424,7 +424,8 @@ def plot_image_with_boxes(image, boxes, class_list, image_name = "example"):
         boxes: list of lists, each list is bounding box in format [x, y, w, h, obj, class_label]
         class_list: list of strings, class labels
     """
-    
+    cmap = plt.get_cmap("tab20b")
+    colors = [cmap(i) for i in np.linspace(0, 1, len(class_list))]
     if (len(boxes) == 0):
         print("No objects detected.")
         return image
@@ -447,21 +448,21 @@ def plot_image_with_boxes(image, boxes, class_list, image_name = "example"):
         box_w = w * im_w  # Calculate box width
         box_h = h * im_h  # Calculate box height
         # Draw rectangle
-        rect = patches.Rectangle((top_left_x, top_left_y), box_w, box_h, linewidth=1, edgecolor='r', facecolor='none')
+        rect = patches.Rectangle((top_left_x, top_left_y), box_w, box_h, linewidth=1, edgecolor= colors[int(class_label)], facecolor='none')
         ax.add_patch(rect)
 
         # Add class label
         class_label = int(class_label)
         class_name = class_list[class_label]
-        plt.text(top_left_x, top_left_y, s=class_name, 
+        plt.text(top_left_x - 1, top_left_y - 2, s=class_name, 
                  size='xx-small', color='white', 
-                 bbox={"color": "red", "pad": 0})
+                 bbox={"color": colors[int(class_label)], "pad": 0})
 
     plt.axis('off')
 
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    
-    plt.savefig(f"{image_name}.png", bbox_inches='tight', pad_inches=0)
+    if savefig:
+        plt.savefig(f"{image_name}.png", bbox_inches='tight', pad_inches=0)
     plt.show()
 
     fig.canvas.draw()
@@ -496,7 +497,8 @@ def plot_original(original_image, resized_image, boxes, class_list):
 
         adjusted_boxes.append([x_center, y_center, width, height, box[4], box[5]])
     # Now plot the boxes on the original image
-    plot_image_with_boxes(original_image, adjusted_boxes, class_list)
+    img_w_boxes = plot_image_with_boxes(original_image, adjusted_boxes, class_list)
+    return img_w_boxes
 
 def mosaic_augmentation(imgs, anns, size):
     """
