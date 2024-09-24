@@ -8,7 +8,8 @@ import sys
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils import non_max_suppression, cells_to_boxes, plot_original
-import config
+from model import YOLOv3
+from config import DEVICE, ANCHORS, GRID_SIZES, CONF_THRESHOLD, COCO_LABELS, set_only_image_transforms, CSV_FOLDER, MODEL_FOLDER
 
 # Load the YOLOv3 model
 @st.cache_resource
@@ -17,14 +18,21 @@ def load_model(weights_path):
     model.eval()  # Set model to evaluation mode
     return model
 
+def load_turbine_model(weights_path):
+    model = YOLOv3(num_classes = 2, activation = "mish")
+    checkpoint = torch.load(weights_path, map_location= DEVICE)
+    model.load_state_dict(checkpoint['state_dict'])
+    model.eval()
+    return model
+
 def predict(model, image, confidence_threshold=0.7):
-    anchors = config.ANCHORS
+    anchors = ANCHORS
     
     scaled_anchors = torch.tensor(anchors) * (
-                    torch.tensor(config.GRID_SIZES).unsqueeze(1).unsqueeze(1).repeat(1,3,2)
+                    torch.tensor(GRID_SIZES).unsqueeze(1).unsqueeze(1).repeat(1,3,2)
     )
 
-    image_transforms = config.set_only_image_transforms()
+    image_transforms = set_only_image_transforms()
     resize = image_transforms(image = image)
     resized_img = resize['image'].unsqueeze(0)
 
@@ -42,18 +50,18 @@ def predict(model, image, confidence_threshold=0.7):
                 bboxes[idx] += box
     
     nms_boxes = non_max_suppression(
-            bboxes[0], iou_threshold=0.45, obj_threshold= confidence_threshold, box_format="center",
+            bboxes[0], iou_threshold=0.2, obj_threshold= CONF_THRESHOLD, box_format="center",
         )
     
     obj_preds = []
     for box in nms_boxes:
-        label = config.COCO_LABELS[int(box[5])]  # Make sure the class label index is an integer
+        label = COCO_LABELS[int(box[5])]  # Make sure the class label index is an integer
         obj_preds.append((label, box[4]))
     
     obj_preds_df = pd.DataFrame(obj_preds, columns=["Class", "Confidence"])
 
     print(resized_img[0].shape)
-    plotted_image = plot_original(image, np.array(resized_img[0]).transpose((1, 2, 0)), nms_boxes, class_list = config.COCO_LABELS)
+    plotted_image = plot_original(image, np.array(resized_img[0]).transpose((1, 2, 0)), nms_boxes, class_list = COCO_LABELS)
     
     return plotted_image, obj_preds_df
 
@@ -64,12 +72,12 @@ st.title("YOLOv3 Object Detection")
 uploaded_image = st.file_uploader("Choose an image from the Common Objects in Context (COCO) dataset...", type=["jpg", "jpeg", "png"])
 
 # Example images
-example_images_folder = f"{config.CSV_FOLDER}/streamlit_exs"
+example_images_folder = f"{CSV_FOLDER}/streamlit_exs"
 example_images = [f for f in os.listdir(example_images_folder) if f.endswith(('jpg', 'jpeg', 'png'))]
 selected_example_image = st.selectbox("Or select an example image:", ["None"] + example_images)
 
 # Load model
-weights_path = f"{config.MODEL_FOLDER}/YOLOv3COCO.pth"  # Replace with your model's path
+weights_path = f"{MODEL_FOLDER}/YOLOv3COCO.pth"  # Replace with your model's path
 model = load_model(weights_path)
 
 # Load and process the selected image
