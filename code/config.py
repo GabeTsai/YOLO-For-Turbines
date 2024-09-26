@@ -19,7 +19,10 @@ MAP_IOU_THRESHOLD = 0.5
 CONF_THRESHOLD = 0.5
 NMS_IOU_THRESHOLD = 0.45
 
-PROJ_FOLDER = "/Users/HP/Documents/GitHub/YOLO-For-Turbines"
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+
+PROJ_FOLDER = f"{parent_dir}"
 IMAGE_FOLDER = f"{PROJ_FOLDER}/data/images"
 ANNOTATION_FOLDER = f"{PROJ_FOLDER}/data/labels"
 WEIGHTS_FOLDER = f"{PROJ_FOLDER}/weights"
