@@ -818,26 +818,31 @@ def create_csv_files(image_folder, annotation_folder, split_folder, split_map):
     common_names = image_names.intersection(label_names)
     
     data_list = []
+    noobj_list = []
 
-    negative_count = 0
+    negative_count = len(common_names)
     for image_name in sorted(image_names):
         if image_name in common_names and check_boxes(annotation_folder, image_name + '.txt'):
             data_list.append([image_name + '.png', image_name + '.txt'])
-        elif negative_count < len(common_names):
-            data_list.append([image_name + '.png', None])
-            negative_count += 1
+        else:
+            noobj_list.append([image_name + '.png', None])
 
-    print(len(data_list))
     data_arr = np.array(data_list)
+    noobj_data_arr = np.array(noobj_list)
     rng = np.random.default_rng(seed=3407)  
-    random_array = rng.integers(len(data_arr), size=len(data_arr))
-    data_arr = data_arr[random_array]
+    random_array = rng.integers(negative_count, size = negative_count)
+    noobj_data_arr = noobj_data_arr[random_array]
 
+    final_arr = np.concatenate((data_arr, noobj_data_arr), axis = 0)
+    random_array = rng.integers(len(final_arr), size = len(final_arr))
+    final_arr = final_arr[random_array]
+
+    print(len(final_arr))
+    
     start_idx = 0
     for split in split_map:
-        end_idx = start_idx + int(split_map[split] * len(data_arr))
-        split_data = data_arr[start_idx:end_idx]
-        print(split_data.shape)
+        end_idx = start_idx + int(split_map[split] * len(final_arr))
+        split_data = final_arr[start_idx:end_idx]
         np.savetxt(Path(f"{split_folder}/{split}.csv"), split_data, fmt = "%s", delimiter = ",")
 
 def seed_everything(seed = 424242):

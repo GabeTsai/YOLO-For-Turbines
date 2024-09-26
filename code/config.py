@@ -13,7 +13,7 @@ NUM_PROCESSES = 2
 NUM_WORKERS = int(os.cpu_count()/NUM_PROCESSES) if int(os.cpu_count()/NUM_PROCESSES) <  16 else 16
 NUM_GPUS = torch.cuda.device_count()
 PIN_MEMORY = True
-LOAD_CHECKPOINT = False
+LOAD_CHECKPOINT = True
 
 MAP_IOU_THRESHOLD = 0.5
 CONF_THRESHOLD = 0.5

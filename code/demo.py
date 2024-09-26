@@ -11,6 +11,7 @@ def load_model(weights_path):
     return model
 
 def predict(model, image, confidence_threshold=0.7):
+    
     scaled_anchors = torch.tensor(anchors) * (
                     torch.tensor(config.GRID_SIZES).unsqueeze(1).unsqueeze(1).repeat(1,3,2)
     )
@@ -73,5 +74,5 @@ if uploaded_image is not None:
         st.write("No objects detected.")
     else:
         st.write(scores_df)
-    
+
     st.write("Inference complete.")
