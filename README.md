@@ -30,7 +30,7 @@ Taking a page out of the training for YOLOv4, I implemented a custom function th
 **Vectorizing Non-Max Supression**:
 - In order to calculate mAP or get the model's final predictions, we have to consider that the model will produce a lot of box predictions for the same object. Using Non-Max Suppression, we select boxes with the highest confidence score and remove all other boxes that have an iou greater than or equal to that of a threshold we designate. Rinse and repeat until you get the filtered, final model box predictions.
 - I noticed during model training that training speed bottlenecked during the mAP calculation, which required NMS of the model box predictions.
-- I changed an inner for loop to use vectorized PyTorch code instead, resulting in an over 100x speed boost.
+- I converted an inner for loop to vectorized PyTorch code instead, resulting in an over 20x speed boost.
 
 ## Lessons Learned:
 - Implementing models is a hard but insightful learning experience that forces you to really understand the model architecture/nuances.
