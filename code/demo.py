@@ -4,6 +4,7 @@ import pandas as pd
 from PIL import Image
 import numpy as np
 import os
+import gdown
 import sys
 
 from utils import non_max_suppression, cells_to_boxes, plot_original
@@ -12,7 +13,9 @@ import config
 
 # Load the YOLOv3 model
 @st.cache_resource
-def load_model(weights_path):
+def load_model(weights_path, gdrive_url):
+    if not os.path.exists(weights_path):
+        gdown.download(gdrive_url, weights_path, quiet=False)
     model = torch.load(weights_path)
     model.eval()  # Set model to evaluation mode
     return model
@@ -24,7 +27,7 @@ def load_turbine_model(weights_path):
     model.eval()
     return model
 
-def predict(model, image, confidence_threshold=0.7):
+def predict(model, image):
     anchors = config.ANCHORS
     
     scaled_anchors = torch.tensor(anchors) * (
@@ -49,7 +52,7 @@ def predict(model, image, confidence_threshold=0.7):
                 bboxes[idx] += box
     
     nms_boxes = non_max_suppression(
-            bboxes[0], iou_threshold=0.2, obj_threshold= config.CONF_THRESHOLD, box_format="center",
+            bboxes[0], iou_threshold=0.45, obj_threshold= config.CONF_THRESHOLD, box_format="center",
         )
     
     obj_preds = []
@@ -59,25 +62,24 @@ def predict(model, image, confidence_threshold=0.7):
     
     obj_preds_df = pd.DataFrame(obj_preds, columns=["Class", "Confidence"])
 
-    print(resized_img[0].shape)
     plotted_image = plot_original(image, np.array(resized_img[0]).transpose((1, 2, 0)), nms_boxes, class_list = config.COCO_LABELS)
     
     return plotted_image, obj_preds_df
 
 # Streamlit App Interface
-st.title("YOLOv3 Object Detection")
+st.title("YOLOv3 Object Detection on MSCOCO Dataset")
 
 # Upload image or select example image
 uploaded_image = st.file_uploader("Choose an image from the Common Objects in Context (COCO) dataset...", type=["jpg", "jpeg", "png"])
 
 # Example images
-example_images_folder = f"{config.CSV_FOLDER}/streamlit_exs"
+example_images_folder = f"{config.PROJ_FOLDER}/streamlit_examples"
 example_images = [f for f in os.listdir(example_images_folder) if f.endswith(('jpg', 'jpeg', 'png'))]
 selected_example_image = st.selectbox("Or select an example image:", ["None"] + example_images)
 
-# Load model
+gdrive_url = "https://drive.google.com/file/d/1bY3gEaYC0-i_s-sQdzf7Ix_DqZqlYmQ6/view?usp=sharing"
 weights_path = f"{config.MODEL_FOLDER}/YOLOv3COCO.pth"  # Replace with your model's path
-model = load_model(weights_path)
+model = load_model(weights_path, gdrive_url)  # Load the model
 
 # Load and process the selected image
 if uploaded_image is not None:
@@ -87,7 +89,7 @@ if uploaded_image is not None:
 elif selected_example_image != "None":
     image_path = os.path.join(example_images_folder, selected_example_image)
     image = Image.open(image_path).convert('RGB')
-    st.image(image, caption =" Example Image", use_column_width=True)
+    st.image(image, caption = selected_example_image, use_column_width=True)
     image = np.array(image)
 else:
     image = None

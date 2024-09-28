@@ -7,3 +7,4 @@ opencv-python
 tqdm
 pathlib
 torch == 2.4.0
+gdown
