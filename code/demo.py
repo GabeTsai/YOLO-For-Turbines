@@ -16,7 +16,6 @@ import config
 def load_model(weights_path, gdrive_url):
     if not os.path.exists(weights_path):
         gdown.download(gdrive_url, weights_path, quiet=False)
-    print(weights_path)
     model = torch.load(weights_path)
     model.eval()  # Set model to evaluation mode
     return model
@@ -48,7 +47,6 @@ def predict(model, image):
             boxes_scale_i = cells_to_boxes(
                 out[i], anchor, grid_size=S, is_pred=True
             )
-            print(len(boxes_scale_i))
             for idx, (box) in enumerate(boxes_scale_i):
                 bboxes[idx] += box
     
