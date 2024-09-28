@@ -67,11 +67,24 @@ def predict(model, image):
     
     return plotted_image, obj_preds_df
 
+custom_css = """
+<style>
+body {
+    zoom: 1.2;  /* Adjust the zoom level as needed */
+}
+</style>
+"""
+st.markdown(custom_css, unsafe_allow_html=True)
+
 # Streamlit App Interface
-st.title("YOLOv3 Object Detection on MSCOCO Dataset")
+st.title("YOLOv3 Object Detection Demo")
 
 # Upload image or select example image
-uploaded_image = st.file_uploader("Choose an image from the Common Objects in Context (COCO) dataset...", type=["jpg", "jpeg", "png"])
+st.write("This is a demo of YOLOv3 object detection model. You can upload an image "
+         "or select an example image for object detection. "
+         "The model is trained on the MS COCO dataset, which contains 80 classes of objects in a wide range of contexts.")
+
+uploaded_image = st.file_uploader("Choose any image taken in a normal context. ", type=["jpg", "jpeg", "png"])
 
 # Example images
 example_images_folder = f"{config.PROJ_FOLDER}/streamlit_examples"
@@ -85,12 +98,10 @@ model = load_model(weights_path, gdrive_url)  # Load the model
 # Load and process the selected image
 if uploaded_image is not None:
     image = Image.open(uploaded_image).convert('RGB')
-    st.image(image, caption="Uploaded Image", use_column_width=True)
     image = np.array(image)
 elif selected_example_image != "None":
     image_path = os.path.join(example_images_folder, selected_example_image)
     image = Image.open(image_path).convert('RGB')
-    st.image(image, caption = selected_example_image, use_column_width=True)
     image = np.array(image)
 else:
     image = None
@@ -98,16 +109,24 @@ else:
 # Run YOLOv3 inference if an image is provided
 if image is not None:
     result_image, scores_df = predict(model, image)
-
+        
     if len(scores_df) == 0:
+        st.image(image, caption="Uploaded Image", use_column_width=True)
         st.markdown("<p style='text-align: center; font-size: 15px;'>No objects detected.</p>", unsafe_allow_html=True)
-    else:
+    elif image.shape[1] > image.shape[0]: # Landscape image
+        st.image(image, caption="Uploaded Image", use_column_width=True)
         st.image(result_image, caption="Detected Objects", use_column_width=True)
-        html = scores_df.to_html(index=False)
-        centered_html = f"""
-        <div style="display: flex; justify-content: center;">
-            {html}
-        </div>
-        """
-        st.markdown(centered_html, unsafe_allow_html=True)
-    
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.image(image, caption="Uploaded Image", use_column_width=True)
+        with col2:
+            st.image(result_image, caption="Detected Objects", use_column_width=True)
+        
+    html = scores_df.to_html(index=False)
+    centered_html = f"""
+    <div style="display: flex; justify-content: center;">
+        {html}
+    </div>
+    """
+    st.markdown(centered_html, unsafe_allow_html=True)
