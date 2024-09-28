@@ -448,14 +448,14 @@ def plot_image_with_boxes(image, boxes, class_list, image_name = "example", save
         box_w = w * im_w  # Calculate box width
         box_h = h * im_h  # Calculate box height
         # Draw rectangle
-        rect = patches.Rectangle((top_left_x, top_left_y), box_w, box_h, linewidth=1, edgecolor= colors[int(class_label)], facecolor='none')
+        rect = patches.Rectangle((top_left_x, top_left_y), box_w, box_h, linewidth=2, edgecolor= colors[int(class_label)], facecolor='none')
         ax.add_patch(rect)
 
         # Add class label
         class_label = int(class_label)
         class_name = class_list[class_label]
         plt.text(top_left_x - 1, top_left_y - 2, s=class_name, 
-                 size='xx-small', color='white', 
+                 size='x-small', color='white', 
                  bbox={"color": colors[int(class_label)], "pad": 0})
 
     plt.axis('off')
