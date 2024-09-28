@@ -16,13 +16,13 @@ Replicating YOLO v3 architecture according to the paper using PyTorch. Using pre
 
 **Mosaic Augmentation**:
 <p align="center">
-<img src = "examples/MosaicAugmentation.png" alt = "Mosaic Augmentation" >
+<img src = "readme_images/MosaicAugmentation.png" alt = "Mosaic Augmentation" >
 
 Taking a page out of the training for YOLOv4, I implemented a custom function that performs mosaic augmentation. The algorithm loads four images in a 2x2 mosaic, then selects a point from the top left corner of the image that is between 20 to 30 percent of the entire mosaic. Then, it selects a cutout from the chosen corner and adjust the boxes in that cutout to match the cutout. This feature took quite a while to implement because there were a lot of edge cases to consider, such as making sure that one quadrant of the mosaic contained objects, and accounting for the fact that not every cutout would create a mosaic with objects. 
 
 **Custom Anchors Using K-Means Clustering**:
 <p align="center">
-<img src = "examples/KMeansClustering.png" alt = "K-means clustering used to compute optimal anchor boxes for wind turbine dataset" >
+<img src = "readme_images/KMeansClustering.png" alt = "K-means clustering used to compute optimal anchor boxes for wind turbine dataset" >
 
 - After observing that the widths and heights of the boxes for the wind turbine dataset were drastically different than that of MSCOCO's on a scatter plot, I used Scikit-Learn's K-Means Clustering algorithm to generate custom anchor boxes for my wind turbine defect model. I also wrote the algorithm from scratch for my own learning purposes. 
 
