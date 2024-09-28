@@ -16,6 +16,7 @@ import config
 def load_model(weights_path, gdrive_url):
     if not os.path.exists(weights_path):
         gdown.download(gdrive_url, weights_path, quiet=False)
+    print(weights_path)
     model = torch.load(weights_path)
     model.eval()  # Set model to evaluation mode
     return model
@@ -24,7 +25,7 @@ def load_turbine_model(weights_path):
     model = YOLOv3(num_classes = 2, activation = "mish")
     checkpoint = torch.load(weights_path, map_location=config.DEVICE)
     model.load_state_dict(checkpoint['state_dict'])
-    model.eval()
+    model.eval() 
     return model
 
 def predict(model, image):
@@ -77,7 +78,7 @@ example_images_folder = f"{config.PROJ_FOLDER}/streamlit_examples"
 example_images = [f for f in os.listdir(example_images_folder) if f.endswith(('jpg', 'jpeg', 'png'))]
 selected_example_image = st.selectbox("Or select an example image:", ["None"] + example_images)
 
-gdrive_url = "https://drive.google.com/file/d/1bY3gEaYC0-i_s-sQdzf7Ix_DqZqlYmQ6/view?usp=sharing"
+gdrive_url = "https://drive.google.com/uc?id=1bY3gEaYC0-i_s-sQdzf7Ix_DqZqlYmQ6"
 weights_path = f"{config.MODEL_FOLDER}/YOLOv3COCO.pth"  # Replace with your model's path
 model = load_model(weights_path, gdrive_url)  # Load the model
 
