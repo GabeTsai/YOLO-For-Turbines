@@ -79,7 +79,7 @@ example_images = [f for f in os.listdir(example_images_folder) if f.endswith(('j
 selected_example_image = st.selectbox("Or select an example image:", ["None"] + example_images)
 
 gdrive_url = "https://drive.google.com/uc?id=1bY3gEaYC0-i_s-sQdzf7Ix_DqZqlYmQ6"
-weights_path = f"{config.MODEL_FOLDER}/YOLOv3COCO.pth"  # Replace with your model's path
+weights_path = f"{config.PROJ_FOLDER}/YOLOv3COCO.pth"  # Replace with your model's path
 model = load_model(weights_path, gdrive_url)  # Load the model
 
 # Load and process the selected image
